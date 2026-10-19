@@ -134,7 +134,7 @@ class CreateLinkRequest(BaseModel):
 class UpdateLinkRequest(BaseModel):
     original_url: HttpUrl | None = None
     active: bool | None = None
-
+    expiry_date: date | None = None
 
 class DeleteLinkResponse(BaseModel):
     message: str
@@ -390,20 +390,49 @@ async def update_link(
 
     changes = {}
 
+    # Update destination URL
     if data.original_url is not None:
         destination = str(data.original_url)
+
         if urlparse(destination).scheme not in ("http", "https"):
-            raise HTTPException(400, "Only HTTP and HTTPS URLs are allowed")
+            raise HTTPException(
+                400, "Only HTTP and HTTPS URLs are allowed"
+            )
+
         changes["original_url"] = destination
 
+    # Activate or deactivate the link
     if data.active is not None:
         changes["active"] = data.active
+
+    # Update or remove the expiry date
+    if "expiry_date" in data.model_fields_set:
+        if data.expiry_date is None:
+            # Remove expiry: link will have no expiry date
+            changes["expiry_date"] = None
+        else:
+            today = datetime.now(timezone.utc).date()
+
+            if data.expiry_date < today:
+                raise HTTPException(
+                    400, "Expiry date cannot be in the past"
+                )
+
+            # Keep the link active until the end of the chosen day
+            changes["expiry_date"] = datetime.combine(
+                data.expiry_date,
+                time.max,
+                tzinfo=timezone.utc,
+            )
 
     if not changes:
         raise HTTPException(400, "No changes supplied")
 
     link = await links.find_one_and_update(
-        {"_id": ObjectId(link_id), "owner_id": user["id"]},
+        {
+            "_id": ObjectId(link_id),
+            "owner_id": user["id"],
+        },
         {"$set": changes},
         return_document=ReturnDocument.AFTER,
     )
@@ -412,7 +441,6 @@ async def update_link(
         raise HTTPException(404, "Link not found")
 
     return link_response(link)
-
 
 @app.delete("/api/links/{link_id}", response_model=DeleteLinkResponse)
 async def delete_link(
@@ -741,6 +769,7 @@ async def analytics_top_links(
 
 # CSV export
 
+
 @app.get("/api/analytics/export")
 async def analytics_export(
     period: str = "daily",
@@ -748,45 +777,72 @@ async def analytics_export(
     end_date: str | None = None,
     user: dict = Depends(get_current_user),
 ):
-    start, end = analytics_date_range(period, start_date, end_date)
-    events = await get_analytics_events(user["id"], start, end)
+    start, end = analytics_date_range(
+        period, start_date, end_date
+    )
 
-    counts = Counter(event["link_id"] for event in events)
+    # Load only links owned by the authenticated user.
+    owned_links = [
+        link async for link in links.find({
+            "owner_id": user["id"]
+        })
+    ]
+
+    links_by_id = {
+        str(link["_id"]): link
+        for link in owned_links
+    }
+
+    # Retrieve individual click events in the selected period.
+    events = [
+        event async for event in click_events.find({
+            "owner_id": user["id"],
+            "clicked_at": {"$gte": start, "$lt": end},
+        }).sort("clicked_at", 1)
+    ]
+
     output = io.StringIO()
     writer = csv.writer(output)
 
     writer.writerow([
-        "Short URL", "Original URL", "Clicks", "Created At"
+        "Clicked At (UTC)",
+        "Short Code",
+        "Short URL",
+        "Destination URL",
+        "Referrer",
+        "User Agent",
     ])
 
-    for link_id, count in counts.most_common():
-        if not ObjectId.is_valid(link_id):
+    for event in events:
+        link = links_by_id.get(event.get("link_id"))
+
+        if not link:
             continue
 
-        link = await links.find_one({
-            "_id": ObjectId(link_id),
-            "owner_id": user["id"],
-        })
+        clicked_at = event.get("clicked_at")
+        if isinstance(clicked_at, datetime):
+            clicked_at = clicked_at.isoformat()
 
-        if link:
-            writer.writerow([
-                f"{SHORTIE_BASE_URL}/s/{link['code']}",
-                link["original_url"],
-                count,
-                link.get("created_at", ""),
-            ])
+        writer.writerow([
+            clicked_at or "",
+            link["code"],
+            f"{SHORTIE_BASE_URL}/s/{link['code']}",
+            link.get("original_url", ""),
+            event.get("referrer") or "",
+            event.get("user_agent") or "",
+        ])
 
-    output.seek(0)
-    filename = f"shortie-analytics-{period}.csv"
+    filename = f"shortie-click-events-{period}.csv"
 
     return StreamingResponse(
         iter([output.getvalue()]),
-        media_type="text/csv",
+        media_type="text/csv; charset=utf-8",
         headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
+            "Content-Disposition": (
+                f'attachment; filename="{filename}"'
+            )
         },
     )
-
 
 # Redirect and click tracking
 

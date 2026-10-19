@@ -432,3 +432,25 @@ input:focus-visible {
   outline: 3px solid rgb(8 127 91 / 35%);
   outline-offset: 3px;
 }
+
+.expiry-button {
+  display: block;
+  margin-top: 8px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.expiry-button:hover {
+  border-color: var(--green);
+  background: var(--green-light);
+}
+
+.expiry-button:focus-visible {
+  outline: 3px solid rgb(8 127 91 / 25%);
+  outline-offset: 2px;
+}

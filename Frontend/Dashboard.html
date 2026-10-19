@@ -20,7 +20,7 @@
         <nav class="sidebar-nav">
           <a href="Dashboard.html" class="nav-link active">Links</a>
           <a href="ShortenURL.html" class="nav-link">Shorten URL</a>
-          <a href="#" class="nav-link">Analytics</a>
+          <a href="Analytics.html" class="nav-link">Analytics</a>
           <a href="#" class="nav-link">Campaigns</a>
           <a href="QRcodes.html" class="nav-link">QR codes</a>
           <a href="#" class="nav-link">Domains</a>
@@ -404,6 +404,51 @@
 
           statusCell.appendChild(badge);
 
+          const expiryButton = document.createElement("button");
+          expiryButton.type = "button";
+          expiryButton.className = "expiry-button";
+          expiryButton.textContent = "Manage expiry";
+
+          expiryButton.addEventListener("click", () => {
+            manageExpiry(link);
+          });
+
+          statusCell.appendChild(expiryButton);
+          // Enable / Disable link button
+          const toggleButton = document.createElement("button");
+          toggleButton.type = "button";
+          toggleButton.className = "expiry-button";
+
+          toggleButton.textContent =
+            link.active === false ? "Enable link" : "Disable link";
+
+          toggleButton.addEventListener("click", async () => {
+            const newStatus = link.active === false;
+
+            toggleButton.disabled = true;
+
+            try {
+              await apiRequest(`/api/links/${encodeURIComponent(link.id)}`, {
+                method: "PATCH",
+                body: JSON.stringify({
+                  active: newStatus,
+                }),
+              });
+
+              $("statusMessage").textContent = newStatus
+                ? "Link enabled successfully."
+                : "Link disabled successfully.";
+
+              await loadLinks();
+            } catch (error) {
+              $("statusMessage").textContent =
+                `Could not update link: ${error.message}`;
+
+              toggleButton.disabled = false;
+            }
+          });
+
+          statusCell.appendChild(toggleButton);
           // Click count
           const clicksCell = document.createElement("td");
           clicksCell.textContent = (Number(link.clicks) || 0).toLocaleString();
@@ -414,6 +459,66 @@
         });
       }
 
+      async function manageExpiry(link) {
+        const currentDate = link.expiry_date
+          ? new Date(link.expiry_date).toISOString().slice(0, 10)
+          : "";
+
+        const selectedDate = window.prompt(
+          "Enter an expiry date (YYYY-MM-DD).\n" +
+            "Leave blank to remove expiry.",
+          currentDate,
+        );
+
+        // Cancel was clicked.
+        if (selectedDate === null) {
+          return;
+        }
+
+        const expiryDate = selectedDate.trim();
+
+        if (expiryDate && !/^\d{4}-\d{2}-\d{2}$/.test(expiryDate)) {
+          alert("Please enter a date in YYYY-MM-DD format.");
+          return;
+        }
+
+        if (expiryDate) {
+          const parsedDate = new Date(`${expiryDate}T00:00:00Z`);
+
+          if (
+            Number.isNaN(parsedDate.getTime()) ||
+            parsedDate.toISOString().slice(0, 10) !== expiryDate
+          ) {
+            alert("Please enter a valid date.");
+            return;
+          }
+
+          const today = new Date().toISOString().slice(0, 10);
+
+          if (expiryDate < today) {
+            alert("Expiry date cannot be in the past.");
+            return;
+          }
+        }
+
+        try {
+          await apiRequest(`/api/links/${encodeURIComponent(link.id)}`, {
+            method: "PATCH",
+            body: JSON.stringify({
+              expiry_date: expiryDate || null,
+            }),
+          });
+
+          $("statusMessage").textContent = expiryDate
+            ? `Expiry date updated to ${expiryDate}.`
+            : "Expiry date removed.";
+
+          await loadLinks();
+        } catch (error) {
+          $("statusMessage").textContent =
+            `Could not update expiry: ${error.message}`;
+        }
+      }
       // Search
       $("searchInput").addEventListener("input", renderLinks);
 

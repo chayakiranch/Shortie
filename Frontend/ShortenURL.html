@@ -21,7 +21,7 @@
         <nav class="sidebar-nav">
           <a href="Dashboard.html" class="nav-link">Links</a>
           <a href="ShortenURL.html" class="nav-link active">Shorten URL</a>
-          <a href="#" class="nav-link">Analytics</a>
+          <a href="Analytics.html" class="nav-link">Analytics</a>
           <a href="#" class="nav-link">Campaigns</a>
           <a href="QRcodes.html" class="nav-link">QR codes</a>
           <a href="#" class="nav-link">Domains</a>
@@ -401,6 +401,80 @@
           });
 
           actionCell.appendChild(copyButton);
+
+          // Edit destination URL
+          const editButton = document.createElement("button");
+          editButton.type = "button";
+          editButton.className = "secondary-button small-button";
+          editButton.textContent = "Edit URL";
+
+          editButton.addEventListener("click", async () => {
+            const newUrl = window.prompt(
+              "Enter the new destination URL:",
+              link.original_url || "",
+            );
+
+            if (newUrl === null) return;
+
+            const destination = newUrl.trim();
+
+            if (!validHttpUrl(destination)) {
+              showMessage(
+                "Enter a valid URL beginning with http:// or https://",
+              );
+              return;
+            }
+
+            editButton.disabled = true;
+
+            try {
+              await apiRequest(`/api/links/${encodeURIComponent(link.id)}`, {
+                method: "PATCH",
+                body: JSON.stringify({ original_url: destination }),
+              });
+
+              showMessage("Destination URL updated successfully.", "success");
+              await loadRecentLinks();
+            } catch (error) {
+              showMessage(`Could not update URL: ${error.message}`);
+            } finally {
+              editButton.disabled = false;
+            }
+          });
+
+          actionCell.appendChild(editButton);
+
+          // Delete short link
+          const deleteButton = document.createElement("button");
+          deleteButton.type = "button";
+          deleteButton.className = "delete-button small-button";
+          deleteButton.textContent = "Delete";
+
+          deleteButton.addEventListener("click", async () => {
+            const confirmed = window.confirm(
+              `Permanently delete ${link.short_url || link.code}?`,
+            );
+
+            if (!confirmed) return;
+
+            deleteButton.disabled = true;
+
+            try {
+              await apiRequest(`/api/links/${encodeURIComponent(link.id)}`, {
+                method: "DELETE",
+              });
+
+              showMessage("Short link deleted successfully.", "success");
+              await loadRecentLinks();
+            } catch (error) {
+              showMessage(`Could not delete link: ${error.message}`);
+            } finally {
+              deleteButton.disabled = false;
+            }
+          });
+
+          actionCell.appendChild(deleteButton);
+
           row.append(linkCell, createdCell, clicksCell, actionCell);
 
           recentLinksBody.appendChild(row);
