@@ -3,6 +3,8 @@ import os
 import re
 import secrets
 import string
+import logging
+from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal
@@ -11,17 +13,22 @@ from urllib.parse import urlparse
 import jwt
 from bson import ObjectId
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt.exceptions import InvalidTokenError
 from pwdlib import PasswordHash
 from pydantic import BaseModel, EmailStr, Field, HttpUrl
 from pymongo import AsyncMongoClient, ReturnDocument
 from pymongo.errors import DuplicateKeyError
+import csv
+import io
 
 load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("shortie")
 
 MONGODB_URL = os.getenv("MONGODB_URL")
 DATABASE_NAME = os.getenv("DATABASE_NAME", "shortie")
@@ -44,6 +51,7 @@ db = client[DATABASE_NAME]
 users = db["users"]
 links = db["links"]
 qr_codes = db["qr_codes"]
+click_events = db["click_events"]
 
 password_hash = PasswordHash.recommended()
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -57,15 +65,35 @@ async def lifespan(app: FastAPI):
     await links.create_index("code", unique=True)
     await links.create_index([("owner_id", 1), ("created_at", -1)])
 
-    await qr_codes.create_index([("owner_id", 1), ("created_at", -1)])
-    await qr_codes.create_index([("owner_id", 1), ("link_id", 1)])
+    await qr_codes.create_index(
+        [("owner_id", 1), ("created_at", -1)]
+    )
+    await qr_codes.create_index(
+        [("owner_id", 1), ("link_id", 1)]
+    )
 
+    await click_events.create_index(
+        [("link_id", 1), ("clicked_at", -1)]
+    )
+    await click_events.create_index(
+        [("owner_id", 1), ("clicked_at", -1)]
+    )
+    await click_events.create_index(
+        [("code", 1), ("clicked_at", -1)]
+    )
+
+    logger.info("Shortie database connected successfully")
     yield
     await client.close()
 
 
-app = FastAPI(title="Shortie API", version="1.1.0")
+app = FastAPI(
+    title="Shortie API",
+    version="1.3.0",
+)
 
+# Permit localhost development servers on any port.
+# For production, restrict this to your deployed frontend domain.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -76,11 +104,14 @@ app.add_middleware(
         "http://127.0.0.1:5502",
         "http://localhost:5502",
     ],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
 )
 
+
+# Request models
 
 class SignupRequest(BaseModel):
     full_name: str = Field(min_length=2, max_length=100)
@@ -118,6 +149,8 @@ class SaveQRCodeRequest(BaseModel):
     logo: str | None = Field(default=None, max_length=3_000_000)
 
 
+# Authentication helpers
+
 def make_token(user_id: str) -> str:
     now = datetime.now(timezone.utc)
     return jwt.encode(
@@ -136,98 +169,6 @@ def safe_user(user: dict) -> dict:
         "id": str(user["_id"]),
         "full_name": user["full_name"],
         "email": user["email"],
-    }
-
-
-def link_response(link: dict) -> dict:
-    return {
-        "id": str(link["_id"]),
-        "code": link["code"],
-        "short_url": f"{SHORTIE_BASE_URL}/s/{link['code']}",
-        "original_url": link["original_url"],
-        "created_at": link["created_at"],
-        "expiry_date": link.get("expiry_date"),
-        "active": link.get("active", True),
-        "clicks": link.get("clicks", 0),
-    }
-
-
-def qr_response(document: dict) -> dict:
-    created_at = document["created_at"]
-
-    return {
-        "id": str(document["_id"]),
-        "linkId": document["link_id"],
-        "shortUrl": document["short_url"],
-        "size": document["size"],
-        "correction": document["correction"],
-        "foreground": document["foreground"],
-        "background": document["background"],
-        "logo": document.get("logo"),
-        "createdAt": created_at.isoformat(),
-    }
-
-
-def generate_code(length: int = 7) -> str:
-    alphabet = string.ascii_letters + string.digits
-    return "".join(secrets.choice(alphabet) for _ in range(length))
-
-
-@app.get("/")
-async def home():
-    return {"message": "Shortie API is running", "docs": "/docs"}
-
-
-@app.post("/api/auth/signup", status_code=201)
-async def signup(data: SignupRequest):
-    full_name = data.full_name.strip()
-    email = str(data.email).lower()
-
-    if len(full_name) < 2:
-        raise HTTPException(400, "Enter a valid name")
-
-    if not data.terms_accepted:
-        raise HTTPException(400, "Accept the terms to continue")
-
-    user = {
-        "full_name": full_name,
-        "email": email,
-        "password_hash": password_hash.hash(data.password),
-        "role": "user",
-        "is_active": True,
-        "created_at": datetime.now(timezone.utc),
-    }
-
-    try:
-        result = await users.insert_one(user)
-    except DuplicateKeyError:
-        raise HTTPException(409, "Email is already registered")
-
-    user["_id"] = result.inserted_id
-
-    return {
-        "message": "Account created successfully",
-        "user": safe_user(user),
-    }
-
-
-@app.post("/api/auth/login")
-async def login(data: LoginRequest):
-    user = await users.find_one({"email": str(data.email).lower()})
-
-    if not user or not password_hash.verify(
-        data.password, user["password_hash"]
-    ):
-        raise HTTPException(401, "Invalid email or password")
-
-    if not user.get("is_active", False):
-        raise HTTPException(403, "Account is disabled")
-
-    return {
-        "message": "Login successful",
-        "access_token": make_token(str(user["_id"])),
-        "token_type": "bearer",
-        "user": safe_user(user),
     }
 
 
@@ -261,10 +202,110 @@ async def get_current_user(
     return safe_user(user)
 
 
+# Response helpers
+
+def link_response(link: dict) -> dict:
+    return {
+        "id": str(link["_id"]),
+        "code": link["code"],
+        "short_url": f"{SHORTIE_BASE_URL}/s/{link['code']}",
+        "original_url": link["original_url"],
+        "created_at": link["created_at"],
+        "expiry_date": link.get("expiry_date"),
+        "active": link.get("active", True),
+        "clicks": link.get("clicks", 0),
+    }
+
+
+def qr_response(document: dict) -> dict:
+    return {
+        "id": str(document["_id"]),
+        "linkId": document["link_id"],
+        "shortUrl": document["short_url"],
+        "size": document["size"],
+        "correction": document["correction"],
+        "foreground": document["foreground"],
+        "background": document["background"],
+        "logo": document.get("logo"),
+        "createdAt": document["created_at"].isoformat(),
+    }
+
+
+def generate_code(length: int = 7) -> str:
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+# Home and authentication
+
+@app.get("/")
+async def home():
+    return {"message": "Shortie API is running", "docs": "/docs"}
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@app.post("/api/auth/signup", status_code=201)
+async def signup(data: SignupRequest):
+    full_name = data.full_name.strip()
+    email = str(data.email).lower()
+
+    if len(full_name) < 2:
+        raise HTTPException(400, "Enter a valid name")
+
+    if not data.terms_accepted:
+        raise HTTPException(400, "Accept the terms to continue")
+
+    user = {
+        "full_name": full_name,
+        "email": email,
+        "password_hash": password_hash.hash(data.password),
+        "role": "user",
+        "is_active": True,
+        "created_at": datetime.now(timezone.utc),
+    }
+
+    try:
+        result = await users.insert_one(user)
+    except DuplicateKeyError:
+        raise HTTPException(409, "Email is already registered")
+
+    user["_id"] = result.inserted_id
+    return {
+        "message": "Account created successfully",
+        "user": safe_user(user),
+    }
+
+
+@app.post("/api/auth/login")
+async def login(data: LoginRequest):
+    user = await users.find_one({"email": str(data.email).lower()})
+
+    if not user or not password_hash.verify(
+        data.password, user["password_hash"]
+    ):
+        raise HTTPException(401, "Invalid email or password")
+
+    if not user.get("is_active", False):
+        raise HTTPException(403, "Account is disabled")
+
+    return {
+        "message": "Login successful",
+        "access_token": make_token(str(user["_id"])),
+        "token_type": "bearer",
+        "user": safe_user(user),
+    }
+
+
 @app.get("/api/auth/me")
 async def current_user(user: dict = Depends(get_current_user)):
     return {"user": user}
 
+
+# URL shortening and link management
 
 @app.post("/api/links", status_code=201)
 async def create_link(
@@ -293,7 +334,9 @@ async def create_link(
 
     expiry = (
         datetime.combine(
-            data.expiry_date, time.max, tzinfo=timezone.utc
+            data.expiry_date,
+            time.max,
+            tzinfo=timezone.utc,
         )
         if data.expiry_date
         else None
@@ -314,27 +357,26 @@ async def create_link(
             result = await links.insert_one(document)
             document["_id"] = result.inserted_id
             return link_response(document)
-
         except DuplicateKeyError:
             if data.alias:
                 raise HTTPException(409, "Alias already exists")
-
             if attempt == 4:
                 raise HTTPException(
-                    503,
-                    "Could not generate a unique code. Please retry.",
+                    503, "Could not generate a unique code. Please retry."
                 )
-
             code = generate_code()
 
 
 @app.get("/api/links")
 async def list_links(user: dict = Depends(get_current_user)):
-    cursor = links.find(
-        {"owner_id": user["id"]}
-    ).sort("created_at", -1).limit(500)
-
-    return {"links": [link_response(link) async for link in cursor]}
+    cursor = (
+        links.find({"owner_id": user["id"]})
+        .sort("created_at", -1)
+        .limit(500)
+    )
+    return {
+        "links": [link_response(link) async for link in cursor]
+    }
 
 
 @app.patch("/api/links/{link_id}")
@@ -350,12 +392,8 @@ async def update_link(
 
     if data.original_url is not None:
         destination = str(data.original_url)
-
         if urlparse(destination).scheme not in ("http", "https"):
-            raise HTTPException(
-                400, "Only HTTP and HTTPS URLs are allowed"
-            )
-
+            raise HTTPException(400, "Only HTTP and HTTPS URLs are allowed")
         changes["original_url"] = destination
 
     if data.active is not None:
@@ -414,23 +452,17 @@ async def save_qr_code(
         })
 
     if not link:
-        raise HTTPException(
-            404, "Short link not found in your account"
-        )
+        raise HTTPException(404, "Short link not found in your account")
 
     if not link.get("active", True):
-        raise HTTPException(
-            400, "Cannot save a QR code for a disabled link"
-        )
+        raise HTTPException(400, "Cannot save a QR code for a disabled link")
 
     expiry = link.get("expiry_date")
     if expiry:
         if expiry.tzinfo is None:
             expiry = expiry.replace(tzinfo=timezone.utc)
         if expiry <= datetime.now(timezone.utc):
-            raise HTTPException(
-                400, "Cannot save a QR code for an expired link"
-            )
+            raise HTTPException(400, "Cannot save a QR code for an expired link")
 
     document = {
         "owner_id": user["id"],
@@ -455,18 +487,14 @@ async def save_qr_code(
 
 
 @app.get("/api/qr-codes")
-async def list_qr_codes(
-    user: dict = Depends(get_current_user),
-):
-    cursor = qr_codes.find(
-        {"owner_id": user["id"]}
-    ).sort("created_at", -1).limit(500)
-
+async def list_qr_codes(user: dict = Depends(get_current_user)):
+    cursor = (
+        qr_codes.find({"owner_id": user["id"]})
+        .sort("created_at", -1)
+        .limit(500)
+    )
     return {
-        "qr_codes": [
-            qr_response(document)
-            async for document in cursor
-        ]
+        "qr_codes": [qr_response(item) async for item in cursor]
     }
 
 
@@ -489,28 +517,314 @@ async def delete_qr_code(
     return {"message": "QR configuration deleted"}
 
 
+# Phase 2: analytics helpers
+
+def analytics_date_range(
+    period: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+):
+    today = datetime.now(timezone.utc).date()
+
+    if period == "daily":
+        first_day = today
+        last_day = today
+    elif period == "weekly":
+        first_day = today - timedelta(days=today.weekday())
+        last_day = first_day + timedelta(days=6)
+    elif period == "monthly":
+        first_day = today.replace(day=1)
+        if first_day.month == 12:
+            next_month = date(first_day.year + 1, 1, 1)
+        else:
+            next_month = date(first_day.year, first_day.month + 1, 1)
+        last_day = next_month - timedelta(days=1)
+    elif period == "custom":
+        if not start_date or not end_date:
+            raise HTTPException(
+                400, "Custom range requires start_date and end_date"
+            )
+        try:
+            first_day = date.fromisoformat(start_date)
+            last_day = date.fromisoformat(end_date)
+        except ValueError:
+            raise HTTPException(400, "Dates must use YYYY-MM-DD format")
+
+        if first_day > last_day:
+            raise HTTPException(400, "start_date must not be after end_date")
+        if (last_day - first_day).days > 365:
+            raise HTTPException(400, "Custom range cannot exceed 366 days")
+    else:
+        raise HTTPException(
+            400, "period must be daily, weekly, monthly, or custom"
+        )
+
+    start = datetime.combine(first_day, time.min, tzinfo=timezone.utc)
+    end = datetime.combine(
+        last_day + timedelta(days=1),
+        time.min,
+        tzinfo=timezone.utc,
+    )
+    return start, end
+
+
+def classify_user_agent(user_agent: str | None) -> dict:
+    ua = (user_agent or "").lower()
+
+    if not ua:
+        return {"device": "Unknown", "browser": "Unknown"}
+
+    if any(term in ua for term in (
+        "bot", "crawler", "spider", "slurp", "headless"
+    )):
+        device = "Bot"
+    elif any(term in ua for term in ("ipad", "tablet")):
+        device = "Tablet"
+    elif any(term in ua for term in (
+        "mobile", "android", "iphone", "ipod"
+    )):
+        device = "Mobile"
+    else:
+        device = "Desktop"
+
+    if "edg/" in ua:
+        browser = "Edge"
+    elif "opr/" in ua or "opera" in ua:
+        browser = "Opera"
+    elif "firefox/" in ua:
+        browser = "Firefox"
+    elif "chrome/" in ua:
+        browser = "Chrome"
+    elif "safari/" in ua:
+        browser = "Safari"
+    else:
+        browser = "Other"
+
+    return {"device": device, "browser": browser}
+
+
+async def get_analytics_events(
+    owner_id: str,
+    start: datetime,
+    end: datetime,
+):
+    return [
+        event async for event in click_events.find({
+            "owner_id": owner_id,
+            "clicked_at": {"$gte": start, "$lt": end},
+        }).sort("clicked_at", 1)
+    ]
+
+
+# Analytics overview
+
+@app.get("/api/analytics/overview")
+async def analytics_overview(
+    period: str = "daily",
+    start_date: str | None = None,
+    end_date: str | None = None,
+    user: dict = Depends(get_current_user),
+):
+    start, end = analytics_date_range(period, start_date, end_date)
+    events = await get_analytics_events(user["id"], start, end)
+
+    devices = Counter()
+    browsers = Counter()
+    bots = 0
+
+    for event in events:
+        result = classify_user_agent(event.get("user_agent"))
+        devices[result["device"]] += 1
+        browsers[result["browser"]] += 1
+        if result["device"] == "Bot":
+            bots += 1
+
+    return {
+        "period": period,
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "total_clicks": len(events),
+        "bots_filtered": bots,
+        "human_clicks": len(events) - bots,
+        "devices": dict(devices),
+        "browsers": dict(browsers),
+        "unique_visitors": None,
+        "qr_scans": None,
+    }
+
+
+# Daily traffic chart
+
+@app.get("/api/analytics/clicks")
+async def analytics_clicks(
+    period: str = "daily",
+    start_date: str | None = None,
+    end_date: str | None = None,
+    user: dict = Depends(get_current_user),
+):
+    start, end = analytics_date_range(period, start_date, end_date)
+    events = await get_analytics_events(user["id"], start, end)
+
+    counts = Counter()
+    for event in events:
+        clicked_at = event["clicked_at"]
+        if clicked_at.tzinfo is None:
+            clicked_at = clicked_at.replace(tzinfo=timezone.utc)
+        counts[clicked_at.date().isoformat()] += 1
+
+    output = []
+    current_day = start.date()
+    while current_day < end.date():
+        key = current_day.isoformat()
+        output.append({"date": key, "clicks": counts.get(key, 0)})
+        current_day += timedelta(days=1)
+
+    return {"period": period, "data": output}
+
+
+# Top links
+
+
+@app.get("/api/analytics/top-links")
+async def analytics_top_links(
+    period: str = "daily",
+    start_date: str | None = None,
+    end_date: str | None = None,
+    user: dict = Depends(get_current_user),
+):
+    start, end = analytics_date_range(period, start_date, end_date)
+
+    pipeline = [
+        {
+            "$match": {
+                "owner_id": user["id"],
+                "clicked_at": {"$gte": start, "$lt": end},
+            }
+        },
+        {
+            "$group": {
+                "_id": "$link_id",
+                "code": {"$first": "$code"},
+                "clicks": {"$sum": 1},
+            }
+        },
+        {"$sort": {"clicks": -1}},
+        {"$limit": 10},
+    ]
+
+    # FIX: Await aggregate() before reading the async cursor.
+    cursor = await click_events.aggregate(pipeline)
+    results = await cursor.to_list(length=10)
+
+    output = []
+
+    for item in results:
+        link_id = item.get("_id")
+
+        if not link_id or not ObjectId.is_valid(link_id):
+            continue
+
+        link = await links.find_one({
+            "_id": ObjectId(link_id),
+            "owner_id": user["id"],
+        })
+
+        if link:
+            output.append({
+                "code": link["code"],
+                "short_url": f"{SHORTIE_BASE_URL}/s/{link['code']}",
+                "original_url": link["original_url"],
+                "clicks": item["clicks"],
+            })
+
+    return {"links": output}
+
+# CSV export
+
+@app.get("/api/analytics/export")
+async def analytics_export(
+    period: str = "daily",
+    start_date: str | None = None,
+    end_date: str | None = None,
+    user: dict = Depends(get_current_user),
+):
+    start, end = analytics_date_range(period, start_date, end_date)
+    events = await get_analytics_events(user["id"], start, end)
+
+    counts = Counter(event["link_id"] for event in events)
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    writer.writerow([
+        "Short URL", "Original URL", "Clicks", "Created At"
+    ])
+
+    for link_id, count in counts.most_common():
+        if not ObjectId.is_valid(link_id):
+            continue
+
+        link = await links.find_one({
+            "_id": ObjectId(link_id),
+            "owner_id": user["id"],
+        })
+
+        if link:
+            writer.writerow([
+                f"{SHORTIE_BASE_URL}/s/{link['code']}",
+                link["original_url"],
+                count,
+                link.get("created_at", ""),
+            ])
+
+    output.seek(0)
+    filename = f"shortie-analytics-{period}.csv"
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        },
+    )
+
+
+# Redirect and click tracking
+
 @app.get("/s/{code}")
-async def redirect_short_link(code: str):
+async def redirect_short_link(code: str, request: Request):
     link = await links.find_one({"code": code})
 
     if not link or not link.get("active", True):
-        raise HTTPException(
-            404, "Short link not found or disabled"
-        )
+        raise HTTPException(404, "Short link not found or disabled")
 
     expiry = link.get("expiry_date")
-
     if expiry:
         if expiry.tzinfo is None:
             expiry = expiry.replace(tzinfo=timezone.utc)
-
         if expiry <= datetime.now(timezone.utc):
             raise HTTPException(410, "This short link has expired")
 
-    await links.update_one(
-        {"_id": link["_id"]},
-        {"$inc": {"clicks": 1}},
-    )
+    click_event = {
+        "link_id": str(link["_id"]),
+        "code": link["code"],
+        "owner_id": link["owner_id"],
+        "clicked_at": datetime.now(timezone.utc),
+        "referrer": request.headers.get("referer"),
+        "user_agent": request.headers.get("user-agent"),
+    }
+
+    try:
+        await click_events.insert_one(click_event)
+    except Exception:
+        logger.exception("Failed to save click event for %s", code)
+
+    try:
+        await links.update_one(
+            {"_id": link["_id"]},
+            {"$inc": {"clicks": 1}},
+        )
+    except Exception:
+        logger.exception("Failed to increment click counter for %s", code)
 
     return RedirectResponse(
         url=link["original_url"],

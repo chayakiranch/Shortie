@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Shortie - Analytics</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="Analytics.css" />
+  </head>
+  <body>
+    <div class="app-layout">
+      <aside class="sidebar">
+        <a class="logo" href="Dashboard.html">Shortie</a>
+
+        <nav class="sidebar-nav">
+          <a href="Dashboard.html" class="nav-link">Links</a>
+          <a href="ShortenURL.html" class="nav-link">Shorten URL</a>
+          <a href="Analytics.html" class="nav-link active">Analytics</a>
+          <a href="#" class="nav-link">Campaigns</a>
+          <a href="QRcodes.html" class="nav-link">QR codes</a>
+          <a href="#" class="nav-link">Domains</a>
+          <a href="#" class="nav-link">API keys</a>
+          <a href="#" class="nav-link">Settings</a>
+        </nav>
+
+        <div class="sidebar-user">
+          <div class="user-info">
+            <div class="user-avatar" id="userAvatar">--</div>
+            <div class="user-details">
+              <h3 id="userName">Loading...</h3>
+              <p id="userEmail">Loading...</p>
+            </div>
+          </div>
+          <button class="logout-button" id="logoutButton" type="button">
+            Log out
+          </button>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="page-header">
+          <div>
+            <h1>Analytics</h1>
+            <p>Clicks, QR scans and audience across all your links.</p>
+          </div>
+
+          <div class="header-actions">
+            <button class="period-button active" data-period="daily">
+              Daily
+            </button>
+            <button class="period-button" data-period="weekly">Weekly</button>
+            <button class="period-button" data-period="monthly">Monthly</button>
+            <button class="period-button" id="customRangeButton">
+              Custom range
+            </button>
+            <button class="secondary-button" id="exportButton">
+              Export CSV
+            </button>
+          </div>
+        </header>
+
+        <p
+          id="statusMessage"
+          class="status-message"
+          role="status"
+          aria-live="polite"
+        ></p>
+
+        <section id="customRangePanel" class="filter-panel" hidden>
+          <div class="date-field">
+            <label for="startDate">Start date</label>
+            <input type="date" id="startDate" />
+          </div>
+          <div class="date-field">
+            <label for="endDate">End date</label>
+            <input type="date" id="endDate" />
+          </div>
+          <button class="primary-button" id="applyRangeButton">
+            Apply range
+          </button>
+        </section>
+
+        <section class="stats-grid">
+          <article class="stat-card">
+            <p>Total clicks</p>
+            <h2 id="totalClicks">—</h2>
+            <span>Recorded redirect events</span>
+          </article>
+
+          <article class="stat-card">
+            <p>Est. unique visitors</p>
+            <h2 id="uniqueVisitors">Unavailable</h2>
+            <span>Requires visitor estimation</span>
+          </article>
+
+          <article class="stat-card">
+            <p>QR scans</p>
+            <h2 id="qrScans">Unavailable</h2>
+            <span>Separate QR tracking not implemented</span>
+          </article>
+
+          <article class="stat-card">
+            <p>Bots filtered</p>
+            <h2 id="botsFiltered">—</h2>
+            <span>Basic user-agent classification</span>
+          </article>
+        </section>
+
+        <section class="panel traffic-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Traffic trend</h2>
+              <p id="trafficSubtitle">Clicks grouped by date</p>
+            </div>
+          </div>
+
+          <div
+            id="trafficChart"
+            class="traffic-chart"
+            aria-label="Traffic trend chart"
+          >
+            <p class="empty-message">Loading traffic data...</p>
+          </div>
+        </section>
+
+        <section class="bottom-grid">
+          <article class="panel top-links-panel">
+            <h2>Top links</h2>
+
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Link</th>
+                    <th>Clicks</th>
+                  </tr>
+                </thead>
+                <tbody id="topLinksBody">
+                  <tr>
+                    <td colspan="2" class="empty-message">Loading...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="panel audience-panel">
+            <h2>Devices</h2>
+            <div id="devicesList" class="breakdown-list">
+              <p class="empty-message">Loading...</p>
+            </div>
+
+            <h2 class="subheading">Browsers</h2>
+            <div id="browsersList" class="breakdown-list">
+              <p class="empty-message">Loading...</p>
+            </div>
+          </article>
+
+          <article class="panel audience-panel">
+            <h2>Referrers</h2>
+            <div id="referrersList" class="breakdown-list">
+              <p class="empty-message">Loading...</p>
+            </div>
+
+            <h2 class="subheading">Locations</h2>
+            <div class="breakdown-list">
+              <p>Location analytics are not available yet.</p>
+            </div>
+          </article>
+        </section>
+
+        <p class="page-note">
+          Analytics are calculated from recorded redirect events. Device and
+          browser information is inferred from user-agent strings. Unique
+          visitors and geographic location are not currently measured.
+        </p>
+      </main>
+    </div>
+
+    <script>
+      const API_URL = "http://127.0.0.1:8000";
+      const token = sessionStorage.getItem("shortie_token");
+
+      const $ = (id) => document.getElementById(id);
+
+      let currentPeriod = "daily";
+      let currentStartDate = "";
+      let currentEndDate = "";
+      let currentOverview = null;
+      let currentTraffic = [];
+      let currentTopLinks = [];
+
+      if (!token) {
+        window.location.replace("login.html");
+      } else {
+        initializeAnalytics();
+      }
+
+      async function apiRequest(path) {
+        const response = await fetch(`${API_URL}${path}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (response.status === 401 || response.status === 403) {
+          sessionStorage.removeItem("shortie_token");
+          window.location.replace("login.html");
+          throw new Error("Your session expired. Please log in again.");
+        }
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(
+            typeof data.detail === "string"
+              ? data.detail
+              : "Unable to load analytics.",
+          );
+        }
+
+        return data;
+      }
+
+      function setStatus(message, type = "") {
+        const element = $("statusMessage");
+        element.textContent = message;
+        element.className = `status-message ${type}`;
+      }
+
+      function formatNumber(value) {
+        return Number(value || 0).toLocaleString();
+      }
+
+      function escapeText(value) {
+        return String(value ?? "");
+      }
+
+      async function initializeAnalytics() {
+        try {
+          await loadUser();
+          await loadAnalytics();
+        } catch (error) {
+          console.error(error);
+          setStatus(error.message, "error");
+        }
+      }
+
+      async function loadUser() {
+        const data = await apiRequest("/api/auth/me");
+        const user = data.user;
+
+        $("userName").textContent = user.full_name;
+        $("userEmail").textContent = user.email;
+
+        $("userAvatar").textContent = user.full_name
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((part) => part[0].toUpperCase())
+          .join("");
+      }
+
+      function buildQuery() {
+        const params = new URLSearchParams({
+          period: currentPeriod,
+        });
+
+        if (currentPeriod === "custom") {
+          params.set("start_date", currentStartDate);
+          params.set("end_date", currentEndDate);
+        }
+
+        return params.toString();
+      }
+
+      async function loadAnalytics() {
+        setStatus("Loading analytics...");
+
+        const query = buildQuery();
+
+        try {
+          const [overview, traffic, topLinks] = await Promise.all([
+            apiRequest(`/api/analytics/overview?${query}`),
+            apiRequest(`/api/analytics/clicks?${query}`),
+            apiRequest(`/api/analytics/top-links?${query}`),
+          ]);
+
+          currentOverview = overview;
+          currentTraffic = traffic.data || [];
+          currentTopLinks = topLinks.links || [];
+
+          renderOverview(overview);
+          renderTraffic(currentTraffic);
+          renderTopLinks(currentTopLinks);
+          renderBreakdowns(overview);
+
+          setStatus(
+            `Analytics loaded for ${overview.start.slice(0, 10)} to ${new Date(
+              new Date(overview.end).getTime() - 86400000,
+            )
+              .toISOString()
+              .slice(0, 10)}.`,
+            "success",
+          );
+        } catch (error) {
+          console.error(error);
+          setStatus(error.message, "error");
+          $("trafficChart").replaceChildren();
+          $("trafficChart").textContent = "Unable to load traffic data.";
+        }
+      }
+
+      function renderOverview(data) {
+        $("totalClicks").textContent = formatNumber(data.total_clicks);
+
+        $("botsFiltered").textContent = formatNumber(data.bots_filtered);
+
+        $("uniqueVisitors").textContent =
+          data.unique_visitors == null
+            ? "Unavailable"
+            : formatNumber(data.unique_visitors);
+
+        $("qrScans").textContent =
+          data.qr_scans == null ? "Unavailable" : formatNumber(data.qr_scans);
+      }
+
+      function renderTraffic(rows) {
+        const chart = $("trafficChart");
+        chart.replaceChildren();
+
+        if (!rows.length) {
+          chart.textContent = "No clicks recorded for this period.";
+          chart.className = "traffic-chart empty-chart";
+          return;
+        }
+
+        chart.className = "traffic-chart";
+
+        const maxClicks = Math.max(
+          1,
+          ...rows.map((item) => Number(item.clicks) || 0),
+        );
+
+        rows.forEach((item) => {
+          const column = document.createElement("div");
+          column.className = "chart-column";
+
+          const value = Number(item.clicks) || 0;
+
+          const bar = document.createElement("div");
+          bar.className = "chart-bar";
+          bar.style.height = `${Math.max(3, (value / maxClicks) * 100)}%`;
+          bar.title = `${item.date}: ${value} clicks`;
+          bar.setAttribute("aria-label", `${item.date}: ${value} clicks`);
+
+          const label = document.createElement("span");
+          label.className = "chart-label";
+
+          // Keep labels readable for long custom ranges.
+          label.textContent = item.date.slice(5);
+          label.title = item.date;
+
+          const count = document.createElement("span");
+          count.className = "chart-value";
+          count.textContent = formatNumber(value);
+
+          column.append(count, bar, label);
+          chart.appendChild(column);
+        });
+      }
+
+      function renderTopLinks(items) {
+        const body = $("topLinksBody");
+        body.replaceChildren();
+
+        if (!items.length) {
+          const row = body.insertRow();
+          const cell = row.insertCell();
+          cell.colSpan = 2;
+          cell.className = "empty-message";
+          cell.textContent = "No clicks recorded for this period.";
+          return;
+        }
+
+        items.forEach((link) => {
+          const row = body.insertRow();
+          const linkCell = row.insertCell();
+          const clickCell = row.insertCell();
+
+          const anchor = document.createElement("a");
+          anchor.className = "top-link";
+          anchor.href = link.short_url;
+          anchor.target = "_blank";
+          anchor.rel = "noopener noreferrer";
+          anchor.textContent = link.short_url;
+
+          linkCell.appendChild(anchor);
+          clickCell.textContent = formatNumber(link.clicks);
+        });
+      }
+
+      function renderBreakdowns(data) {
+        renderBreakdown("devicesList", data.devices);
+        renderBreakdown("browsersList", data.browsers);
+        renderReferrers();
+      }
+
+      function renderBreakdown(elementId, values) {
+        const container = $(elementId);
+        container.replaceChildren();
+
+        const entries = Object.entries(values || {}).sort(
+          (a, b) => b[1] - a[1],
+        );
+
+        if (!entries.length) {
+          container.textContent = "No data available.";
+          return;
+        }
+
+        const total = entries.reduce(
+          (sum, [, value]) => sum + Number(value || 0),
+          0,
+        );
+
+        entries.forEach(([name, count]) => {
+          const row = document.createElement("div");
+          row.className = "breakdown-item";
+
+          const label = document.createElement("span");
+          const percentage = total ? Math.round((count / total) * 100) : 0;
+
+          label.textContent = `${name} ${percentage}%`;
+
+          const number = document.createElement("span");
+          number.textContent = formatNumber(count);
+
+          row.append(label, number);
+          container.appendChild(row);
+        });
+      }
+
+      function renderReferrers() {
+        const container = $("referrersList");
+        container.replaceChildren();
+
+        const message = document.createElement("p");
+        message.textContent =
+          "Referrer breakdown is not available from the current analytics API.";
+        container.appendChild(message);
+      }
+
+      document.querySelectorAll("[data-period]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          currentPeriod = button.dataset.period;
+          currentStartDate = "";
+          currentEndDate = "";
+
+          document.querySelectorAll("[data-period]").forEach((item) => {
+            item.classList.toggle("active", item === button);
+          });
+
+          $("customRangePanel").hidden = true;
+          await loadAnalytics();
+        });
+      });
+
+      $("customRangeButton").addEventListener("click", () => {
+        $("customRangePanel").hidden = !$("customRangePanel").hidden;
+
+        document.querySelectorAll("[data-period]").forEach((item) => {
+          item.classList.remove("active");
+        });
+      });
+
+      $("applyRangeButton").addEventListener("click", async () => {
+        const start = $("startDate").value;
+        const end = $("endDate").value;
+
+        if (!start || !end) {
+          setStatus("Select both a start date and an end date.", "error");
+          return;
+        }
+
+        if (start > end) {
+          setStatus("Start date must not be after end date.", "error");
+          return;
+        }
+
+        if (
+          (new Date(`${end}T00:00:00Z`) - new Date(`${start}T00:00:00Z`)) /
+            86400000 >
+          365
+        ) {
+          setStatus("The maximum custom range is 366 days.", "error");
+          return;
+        }
+
+        currentPeriod = "custom";
+        currentStartDate = start;
+        currentEndDate = end;
+
+        await loadAnalytics();
+      });
+
+      $("exportButton").addEventListener("click", () => {
+        if (!currentOverview) {
+          setStatus("Load analytics before exporting.", "error");
+          return;
+        }
+
+        const rows = [["Short URL", "Original URL", "Clicks", "Period"]];
+
+        currentTopLinks.forEach((link) => {
+          rows.push([
+            link.short_url,
+            link.original_url,
+            link.clicks,
+            currentPeriod,
+          ]);
+        });
+
+        if (rows.length === 1) {
+          setStatus(
+            "There are no clicked links to export for this period.",
+            "error",
+          );
+          return;
+        }
+
+        const csv = rows
+          .map((row) =>
+            row
+              .map((value) => {
+                const safeValue = String(value ?? "");
+                return `"${safeValue.replace(/"/g, '""')}"`;
+              })
+              .join(","),
+          )
+          .join("\r\n");
+
+        const blob = new Blob(["\uFEFF" + csv], {
+          type: "text/csv;charset=utf-8;",
+        });
+
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+
+        anchor.href = url;
+        anchor.download = `shortie-analytics-${currentPeriod}.csv`;
+        anchor.click();
+
+        URL.revokeObjectURL(url);
+        setStatus("CSV exported successfully.", "success");
+      });
+
+      $("logoutButton").addEventListener("click", () => {
+        sessionStorage.removeItem("shortie_token");
+        window.location.replace("login.html");
+      });
+    </script>
+  </body>
+</html>
