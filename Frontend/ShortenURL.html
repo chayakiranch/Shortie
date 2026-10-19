@@ -15,7 +15,6 @@
 
   <body>
     <div class="app-layout">
-      <!-- Sidebar -->
       <aside class="sidebar">
         <a href="Dashboard.html" class="logo">Shortie</a>
 
@@ -24,13 +23,12 @@
           <a href="ShortenURL.html" class="nav-link active">Shorten URL</a>
           <a href="#" class="nav-link">Analytics</a>
           <a href="#" class="nav-link">Campaigns</a>
-          <a href="#" class="nav-link">QR codes</a>
+          <a href="QRcodes.html" class="nav-link">QR codes</a>
           <a href="#" class="nav-link">Domains</a>
           <a href="#" class="nav-link">API keys</a>
           <a href="#" class="nav-link">Settings</a>
         </nav>
 
-        <!---->
         <div class="sidebar-user">
           <div class="user-info">
             <div class="user-avatar" id="userAvatar">--</div>
@@ -39,13 +37,13 @@
               <p id="userEmail">Loading...</p>
             </div>
           </div>
+
           <button class="logout-button" id="logoutButton" type="button">
             Log out
           </button>
         </div>
       </aside>
 
-      <!-- Main Content -->
       <main class="main-content">
         <header class="page-heading">
           <h1>Shorten a URL</h1>
@@ -54,7 +52,6 @@
           </p>
         </header>
 
-        <!-- URL Form -->
         <section class="form-card">
           <form id="shortenForm">
             <div class="form-group">
@@ -62,7 +59,8 @@
               <input
                 type="url"
                 id="originalUrl"
-                placeholder="https://example.com/very/long/page?utm_source=newsletter"
+                placeholder="https://example.com/very/long/page"
+                autocomplete="url"
                 required
               />
             </div>
@@ -74,9 +72,9 @@
                   type="text"
                   id="customAlias"
                   placeholder="my-campaign"
-                  maxlength="50"
-                  pattern="[A-Za-z0-9_-]+"
-                  title="Use letters, numbers, hyphens, or underscores."
+                  maxlength="40"
+                  pattern="[A-Za-z0-9_-]{3,40}"
+                  title="Use 3–40 letters, numbers, hyphens or underscores."
                 />
               </div>
 
@@ -87,7 +85,7 @@
             </div>
 
             <p class="form-help">
-              Leave the alias empty to get an auto-generated short code. Aliases
+              Leave the alias empty to generate a unique code. Custom aliases
               must be unique.
             </p>
 
@@ -95,18 +93,24 @@
               Shorten URL
             </button>
 
-            <p id="formMessage" class="form-message" role="status"></p>
+            <p
+              id="formMessage"
+              class="form-message"
+              role="status"
+              aria-live="polite"
+            ></p>
           </form>
         </section>
 
-        <!-- Result: hidden until a demo link is created -->
         <section class="result-card" id="resultCard" hidden>
-          <span class="result-badge">Demo result — not saved to server</span>
+          <span class="result-badge">Saved to your account</span>
 
           <div class="result-main">
             <div class="result-info">
               <h2 id="shortUrlText"></h2>
-              <p id="destinationText"></p>
+              <p class="destination-label">Destination URL</p>
+
+              <div id="resultDestination"></div>
             </div>
 
             <div class="result-actions">
@@ -117,6 +121,7 @@
               >
                 Copy link
               </button>
+
               <button class="secondary-button" type="button" id="showQrButton">
                 Show QR
               </button>
@@ -128,10 +133,21 @@
           </div>
         </section>
 
-        <!-- Recent Links -->
         <section class="recent-section">
-          <h2>Recent links</h2>
-          <p class="section-subtitle">Links created in this browser session</p>
+          <div class="section-heading">
+            <div>
+              <h2>Recent links</h2>
+              <p class="section-subtitle">Your saved links from MongoDB</p>
+            </div>
+
+            <button
+              class="secondary-button"
+              type="button"
+              id="refreshLinksButton"
+            >
+              Refresh
+            </button>
+          </div>
 
           <div class="table-card">
             <table class="links-table">
@@ -140,25 +156,19 @@
                   <th>Short link / original</th>
                   <th>Created</th>
                   <th>Clicks</th>
-                  <th></th>
+                  <th>Action</th>
                 </tr>
               </thead>
+
               <tbody id="recentLinksBody">
                 <tr>
-                  <td colspan="4" class="empty-state">No links created yet.</td>
+                  <td colspan="4" class="empty-state">
+                    Loading your saved links...
+                  </td>
                 </tr>
               </tbody>
             </table>
           </div>
-        </section>
-
-        <!-- Error examples -->
-        <section class="error-card">
-          <h3>Validation examples</h3>
-          <p>
-            Invalid URL: Enter a valid link starting with http:// or https://
-          </p>
-          <p>Alias taken: That alias is already in use. Try another.</p>
         </section>
       </main>
     </div>
@@ -177,58 +187,77 @@
       const resultCard = $("resultCard");
       const recentLinksBody = $("recentLinksBody");
 
-      // Require an existing login.
+      let savedLinks = [];
+      let latestShortUrl = "";
+
       if (!token) {
         window.location.replace("login.html");
       } else {
-        loadUser();
+        initializePage();
       }
 
-      async function loadUser() {
+      async function initializePage() {
         try {
-          const response = await fetch(`${API_URL}/api/auth/me`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-
-          if (response.status === 401 || response.status === 403) {
-            sessionStorage.removeItem("shortie_token");
-            window.location.replace("login.html");
-            return;
-          }
-
-          if (!response.ok) throw new Error("Could not load profile");
-
-          const data = await response.json();
-          const user = data.user;
-
-          $("userName").textContent = user.full_name;
-          $("userEmail").textContent = user.email;
-          $("userAvatar").textContent = user.full_name
-            .trim()
-            .split(/\s+/)
-            .filter(Boolean)
-            .slice(0, 2)
-            .map((part) => part[0].toUpperCase())
-            .join("");
+          await loadUser();
+          await loadRecentLinks();
         } catch (error) {
-          console.error("Profile error:", error);
-          $("userName").textContent = "Profile unavailable";
-          $("userEmail").textContent = "Check backend connection";
+          console.error(error);
+          showMessage(error.message);
         }
       }
 
-      $("logoutButton").addEventListener("click", () => {
-        sessionStorage.removeItem("shortie_token");
-        window.location.replace("login.html");
-      });
+      async function apiRequest(path, options = {}) {
+        const response = await fetch(`${API_URL}${path}`, {
+          ...options,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...(options.body
+              ? {
+                  "Content-Type": "application/json",
+                }
+              : {}),
+            ...(options.headers || {}),
+          },
+        });
 
-      // Frontend-only demonstration.
-      // Replace this with the real URL-shortening API when implemented.
-      const demoLinks = [];
-      const usedAliases = new Set();
+        if (response.status === 401 || response.status === 403) {
+          sessionStorage.removeItem("shortie_token");
+          window.location.replace("login.html");
+          throw new Error("Your session has expired. Please log in again.");
+        }
 
-      function makeCode() {
-        return Math.random().toString(36).slice(2, 8);
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(
+            typeof data.detail === "string"
+              ? data.detail
+              : "The server request failed.",
+          );
+        }
+
+        return data;
+      }
+
+      async function loadUser() {
+        const data = await apiRequest("/api/auth/me");
+        const user = data.user;
+
+        $("userName").textContent = user.full_name;
+        $("userEmail").textContent = user.email;
+
+        $("userAvatar").textContent = user.full_name
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((part) => part[0].toUpperCase())
+          .join("");
+      }
+
+      function showMessage(message, type = "error") {
+        formMessage.textContent = message;
+        formMessage.className = `form-message ${type}`;
       }
 
       function validHttpUrl(value) {
@@ -240,12 +269,145 @@
         }
       }
 
-      function showMessage(message, type = "error") {
-        formMessage.textContent = message;
-        formMessage.className = `form-message ${type}`;
+      function formatDate(value) {
+        if (!value) return "—";
+
+        const date = new Date(value);
+
+        return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString();
       }
 
-      form.addEventListener("submit", (event) => {
+      // More / Less for long URLs
+      function createExpandableUrl(url, maxLength = 55) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "expandable-url";
+
+        const text = document.createElement("span");
+        text.className = "expandable-url-text";
+        text.textContent = url || "—";
+
+        wrapper.appendChild(text);
+
+        if (url && url.length > maxLength) {
+          text.classList.add("url-collapsed");
+
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "url-more-button";
+          button.textContent = "More";
+          button.setAttribute("aria-expanded", "false");
+
+          button.addEventListener("click", () => {
+            const expanded = button.getAttribute("aria-expanded") === "true";
+
+            button.setAttribute("aria-expanded", String(!expanded));
+            text.classList.toggle("url-collapsed", expanded);
+            button.textContent = expanded ? "More" : "Less";
+          });
+
+          wrapper.appendChild(button);
+        }
+
+        return wrapper;
+      }
+
+      async function loadRecentLinks() {
+        recentLinksBody.replaceChildren();
+
+        const loadingRow = document.createElement("tr");
+        const loadingCell = document.createElement("td");
+
+        loadingCell.colSpan = 4;
+        loadingCell.className = "empty-state";
+        loadingCell.textContent = "Loading your saved links...";
+
+        loadingRow.appendChild(loadingCell);
+        recentLinksBody.appendChild(loadingRow);
+
+        try {
+          const data = await apiRequest("/api/links");
+          savedLinks = Array.isArray(data.links) ? data.links : [];
+
+          renderRecentLinks();
+        } catch (error) {
+          showEmptyState("Unable to load saved links.");
+          throw error;
+        }
+      }
+
+      function showEmptyState(message) {
+        recentLinksBody.replaceChildren();
+
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+
+        cell.colSpan = 4;
+        cell.className = "empty-state";
+        cell.textContent = message;
+
+        row.appendChild(cell);
+        recentLinksBody.appendChild(row);
+      }
+
+      function renderRecentLinks() {
+        recentLinksBody.replaceChildren();
+
+        if (savedLinks.length === 0) {
+          showEmptyState("No saved links yet. Create your first short link.");
+          return;
+        }
+
+        savedLinks.forEach((link) => {
+          const row = document.createElement("tr");
+
+          const linkCell = document.createElement("td");
+          linkCell.className = "link-cell";
+
+          const shortLink = document.createElement("a");
+          shortLink.className = "recent-short-link";
+          shortLink.href = link.short_url;
+          shortLink.target = "_blank";
+          shortLink.rel = "noopener noreferrer";
+          shortLink.textContent = link.short_url || link.code;
+
+          const original = createExpandableUrl(link.original_url);
+
+          linkCell.append(shortLink, original);
+
+          const createdCell = document.createElement("td");
+          createdCell.textContent = formatDate(link.created_at);
+
+          const clicksCell = document.createElement("td");
+          clicksCell.textContent = (Number(link.clicks) || 0).toLocaleString();
+
+          const actionCell = document.createElement("td");
+
+          const copyButton = document.createElement("button");
+          copyButton.type = "button";
+          copyButton.className = "secondary-button small-button";
+          copyButton.textContent = "Copy";
+
+          copyButton.addEventListener("click", async () => {
+            try {
+              await navigator.clipboard.writeText(link.short_url);
+              copyButton.textContent = "Copied!";
+
+              setTimeout(() => {
+                copyButton.textContent = "Copy";
+              }, 1500);
+            } catch {
+              showMessage("Unable to copy. Copy the URL manually.");
+            }
+          });
+
+          actionCell.appendChild(copyButton);
+          row.append(linkCell, createdCell, clicksCell, actionCell);
+
+          recentLinksBody.appendChild(row);
+        });
+      }
+
+      form.addEventListener("submit", async (event) => {
         event.preventDefault();
 
         const originalUrl = urlInput.value.trim();
@@ -257,15 +419,10 @@
           return;
         }
 
-        if (alias && !/^[A-Za-z0-9_-]+$/.test(alias)) {
+        if (alias && !/^[A-Za-z0-9_-]{3,40}$/.test(alias)) {
           showMessage(
-            "Alias can contain letters, numbers, hyphens and underscores.",
+            "Alias must contain 3–40 letters, numbers, hyphens or underscores.",
           );
-          return;
-        }
-
-        if (alias && usedAliases.has(alias.toLowerCase())) {
-          showMessage("That alias is already in use. Try another.");
           return;
         }
 
@@ -274,112 +431,94 @@
           return;
         }
 
-        const code = alias || makeCode();
+        const button = $("shortenButton");
+        button.disabled = true;
+        button.textContent = "Creating...";
 
-        if (usedAliases.has(code.toLowerCase())) {
-          showMessage("Code already used. Please try again.");
-          return;
+        try {
+          const payload = {
+            original_url: originalUrl,
+          };
+
+          if (alias) payload.alias = alias;
+          if (expiryDate) payload.expiry_date = expiryDate;
+
+          const link = await apiRequest("/api/links", {
+            method: "POST",
+            body: JSON.stringify(payload),
+          });
+
+          latestShortUrl = link.short_url;
+
+          $("shortUrlText").textContent = link.short_url;
+
+          $("resultDestination").replaceChildren(
+            createExpandableUrl(link.original_url),
+          );
+
+          resultCard.hidden = false;
+          $("qrContainer").hidden = true;
+
+          showMessage("Short link created and saved successfully.", "success");
+
+          form.reset();
+
+          await loadRecentLinks();
+
+          resultCard.scrollIntoView({
+            behavior: "smooth",
+            block: "nearest",
+          });
+        } catch (error) {
+          showMessage(error.message);
+        } finally {
+          button.disabled = false;
+          button.textContent = "Shorten URL";
         }
-
-        usedAliases.add(code.toLowerCase());
-
-        const shortUrl = `${window.location.origin}/s/${code}`;
-
-        const item = {
-          code,
-          shortUrl,
-          originalUrl,
-          createdAt: new Date(),
-          expiryDate,
-          clicks: 0,
-        };
-
-        demoLinks.unshift(item);
-        renderRecentLinks();
-
-        $("shortUrlText").textContent = shortUrl;
-        $("destinationText").textContent = `Redirects to: ${originalUrl}`;
-        resultCard.hidden = false;
-        $("qrContainer").hidden = true;
-
-        showMessage("Demo link generated in this browser only.", "success");
       });
 
       $("copyResultButton").addEventListener("click", async () => {
+        if (!latestShortUrl) return;
+
         try {
-          await navigator.clipboard.writeText($("shortUrlText").textContent);
+          await navigator.clipboard.writeText(latestShortUrl);
+
           $("copyResultButton").textContent = "Copied!";
-          setTimeout(
-            () => ($("copyResultButton").textContent = "Copy link"),
-            1500,
-          );
+
+          setTimeout(() => {
+            $("copyResultButton").textContent = "Copy link";
+          }, 1500);
         } catch {
           showMessage("Clipboard access failed. Copy the link manually.");
         }
       });
 
       $("showQrButton").addEventListener("click", () => {
-        const shortUrl = $("shortUrlText").textContent;
-        const qrContainer = $("qrContainer");
-        const qrImage = $("qrImage");
+        if (!latestShortUrl) return;
 
-        // Uses a QR image service for this UI demo.
-        qrImage.src =
-          "https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=" +
-          encodeURIComponent(shortUrl);
+        const container = $("qrContainer");
+        const image = $("qrImage");
 
-        qrContainer.hidden = !qrContainer.hidden;
+        image.src =
+          "https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=" +
+          encodeURIComponent(latestShortUrl);
+
+        container.hidden = !container.hidden;
       });
 
-      function renderRecentLinks() {
-        recentLinksBody.replaceChildren();
-
-        if (demoLinks.length === 0) {
-          const row = document.createElement("tr");
-          const cell = document.createElement("td");
-          cell.colSpan = 4;
-          cell.className = "empty-state";
-          cell.textContent = "No links created yet.";
-          row.appendChild(cell);
-          recentLinksBody.appendChild(row);
-          return;
+      $("refreshLinksButton").addEventListener("click", async () => {
+        try {
+          await loadRecentLinks();
+          showMessage("Saved links refreshed.", "success");
+        } catch (error) {
+          showMessage(error.message);
         }
+      });
 
-        demoLinks.forEach((link) => {
-          const row = document.createElement("tr");
-          const linkCell = document.createElement("td");
-          const createdCell = document.createElement("td");
-          const clicksCell = document.createElement("td");
-          const actionCell = document.createElement("td");
-
-          const short = document.createElement("strong");
-          short.textContent = link.shortUrl;
-
-          const original = document.createElement("small");
-          original.textContent = link.originalUrl;
-
-          linkCell.append(short, document.createElement("br"), original);
-          createdCell.textContent = "Just now";
-          clicksCell.textContent = String(link.clicks);
-
-          const copyButton = document.createElement("button");
-          copyButton.className = "secondary-button small-button";
-          copyButton.textContent = "Copy";
-          copyButton.addEventListener("click", async () => {
-            try {
-              await navigator.clipboard.writeText(link.shortUrl);
-              copyButton.textContent = "Copied!";
-              setTimeout(() => (copyButton.textContent = "Copy"), 1500);
-            } catch {
-              showMessage("Clipboard access failed.");
-            }
-          });
-
-          actionCell.appendChild(copyButton);
-          row.append(linkCell, createdCell, clicksCell, actionCell);
-          recentLinksBody.appendChild(row);
-        });
-      }
+      $("logoutButton").addEventListener("click", () => {
+        sessionStorage.removeItem("shortie_token");
+        window.location.replace("login.html");
+      });
     </script>
   </body>
 </html>

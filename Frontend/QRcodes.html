@@ -1,0 +1,730 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Shortie - QR Codes</title>
+
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="QRcodes.css" />
+    <script src="https://unpkg.com/qr-code-styling@1.9.2/lib/qr-code-styling.js"></script>
+  </head>
+
+  <body>
+    <div class="dashboard">
+      <aside class="sidebar">
+        <a href="Dashboard.html" class="logo">Shortie</a>
+
+        <nav class="sidebar-nav">
+          <a href="Dashboard.html" class="nav-link">Links</a>
+          <a href="ShortenURL.html" class="nav-link">Shorten URL</a>
+          <a href="#" class="nav-link">Analytics</a>
+          <a href="#" class="nav-link">Campaigns</a>
+          <a href="QRcodes.html" class="nav-link active">QR codes</a>
+          <a href="#" class="nav-link">Domains</a>
+          <a href="#" class="nav-link">API keys</a>
+          <a href="#" class="nav-link">Settings</a>
+        </nav>
+
+        <div class="sidebar-user">
+          <div class="user-info">
+            <div class="user-avatar" id="userAvatar">--</div>
+            <div class="user-details">
+              <h3 id="userName">Loading...</h3>
+              <p id="userEmail">Loading...</p>
+            </div>
+          </div>
+
+          <button type="button" class="logout-button" id="logoutButton">
+            Log out
+          </button>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="page-header">
+          <h1>QR codes</h1>
+          <p class="page-description">
+            Create a QR code for any short link. It points to the short link, so
+            you can change the destination later without reprinting.
+          </p>
+        </header>
+
+        <p id="message" class="message" role="status" aria-live="polite"></p>
+
+        <div class="qr-layout">
+          <section class="panel customize-panel">
+            <h2>Customize</h2>
+
+            <form id="qrForm">
+              <div class="form-group">
+                <label for="linkSelect">Short link</label>
+                <select id="linkSelect" required>
+                  <option value="">Loading your links...</option>
+                </select>
+              </div>
+
+              <div class="color-grid">
+                <div class="form-group">
+                  <label for="foreground">Foreground</label>
+                  <div class="color-control">
+                    <input
+                      type="color"
+                      id="foreground"
+                      value="#10251e"
+                      aria-label="QR foreground color"
+                    />
+                  </div>
+                </div>
+
+                <div class="form-group">
+                  <label for="background">Background</label>
+                  <div class="color-control">
+                    <input
+                      type="color"
+                      id="background"
+                      value="#ffffff"
+                      aria-label="QR background color"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="size">Size</label>
+                  <select id="size">
+                    <option value="256">256 px</option>
+                    <option value="512">512 px</option>
+                    <option value="1024">1024 px</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label for="correction">Error correction</label>
+                  <select id="correction">
+                    <option value="L">Low (7%)</option>
+                    <option value="M">Medium (15%)</option>
+                    <option value="Q">Quartile (25%)</option>
+                    <option value="H">High (30%)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="logoInput">Logo in center (optional)</label>
+                <input
+                  type="file"
+                  id="logoInput"
+                  accept="image/png,image/jpeg,image/webp"
+                />
+                <small class="help-text">
+                  Maximum 2 MB. High error correction is recommended when adding
+                  a logo.
+                </small>
+                <button
+                  type="button"
+                  class="text-button"
+                  id="removeLogo"
+                  hidden
+                >
+                  Remove logo
+                </button>
+              </div>
+
+              <div class="scan-notice">
+                <strong>Scan check:</strong>
+                Keep strong contrast between colors. Test-scan your QR code
+                before printing. Logos can affect scanning reliability.
+              </div>
+
+              <div class="button-row">
+                <button type="submit" class="primary-button" id="saveButton">
+                  Save QR code
+                </button>
+
+                <button type="button" class="secondary-button" id="downloadPng">
+                  Download PNG
+                </button>
+
+                <button type="button" class="secondary-button" id="downloadSvg">
+                  Download SVG
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <section class="panel preview-panel">
+            <h2>Preview</h2>
+
+            <div id="qrPreview" class="qr-preview">
+              <p class="preview-placeholder">
+                Select a short link to generate a QR code.
+              </p>
+            </div>
+
+            <p class="preview-caption" id="previewCaption">
+              Your QR code preview will appear here.
+            </p>
+          </section>
+        </div>
+
+        <section class="saved-section">
+          <div class="section-heading">
+            <div>
+              <h2>Saved QR codes</h2>
+              <p class="section-subtitle">
+                Configurations saved to your Shortie account
+              </p>
+            </div>
+
+            <button type="button" class="secondary-button" id="refreshButton">
+              Refresh
+            </button>
+          </div>
+
+          <div class="saved-table-wrap">
+            <table class="saved-table">
+              <thead>
+                <tr>
+                  <th>Short link</th>
+                  <th>Size</th>
+                  <th>Error correction</th>
+                  <th>Created</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+
+              <tbody id="savedQrBody">
+                <tr>
+                  <td colspan="5" class="empty-cell">
+                    Loading saved QR codes...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const API_URL = "http://127.0.0.1:8000";
+      const token = sessionStorage.getItem("shortie_token");
+
+      const $ = (id) => document.getElementById(id);
+
+      let links = [];
+      let savedCodes = [];
+      let qr = null;
+      let logoData = null;
+      let previewReady = false;
+
+      const correctionNames = {
+        L: "Low",
+        M: "Medium",
+        Q: "Quartile",
+        H: "High",
+      };
+
+      function showMessage(message, type = "") {
+        $("message").textContent = message;
+        $("message").className = `message ${type}`.trim();
+      }
+
+      async function apiRequest(path, options = {}) {
+        const response = await fetch(`${API_URL}${path}`, {
+          ...options,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...(options.body
+              ? {
+                  "Content-Type": "application/json",
+                }
+              : {}),
+            ...(options.headers || {}),
+          },
+        });
+
+        if (response.status === 401 || response.status === 403) {
+          sessionStorage.removeItem("shortie_token");
+          window.location.replace("login.html");
+          throw new Error("Your session expired. Please log in again.");
+        }
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(
+            typeof data.detail === "string"
+              ? data.detail
+              : "The server request failed.",
+          );
+        }
+
+        return data;
+      }
+
+      async function initialize() {
+        if (!token) {
+          window.location.replace("login.html");
+          return;
+        }
+
+        try {
+          const result = await apiRequest("/api/auth/me");
+          const user = result.user;
+
+          $("userName").textContent = user.full_name;
+          $("userEmail").textContent = user.email;
+
+          $("userAvatar").textContent = user.full_name
+            .trim()
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((part) => part[0].toUpperCase())
+            .join("");
+
+          await Promise.all([loadLinks(), loadSavedCodes()]);
+        } catch (error) {
+          console.error(error);
+          showMessage(error.message, "error");
+        }
+      }
+
+      async function loadLinks() {
+        const result = await apiRequest("/api/links");
+        links = Array.isArray(result.links) ? result.links : [];
+
+        const select = $("linkSelect");
+        const previous = select.value;
+        select.replaceChildren();
+
+        if (!links.length) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "No saved links available";
+          select.appendChild(option);
+          clearPreview();
+          return;
+        }
+
+        links.forEach((link) => {
+          const option = document.createElement("option");
+          option.value = link.id;
+          option.textContent = link.short_url;
+          select.appendChild(option);
+        });
+
+        if (links.some((link) => link.id === previous)) {
+          select.value = previous;
+        }
+
+        generatePreview();
+      }
+
+      async function loadSavedCodes() {
+        const result = await apiRequest("/api/qr-codes");
+        savedCodes = Array.isArray(result.qr_codes) ? result.qr_codes : [];
+
+        renderSavedCodes();
+      }
+
+      function selectedLink() {
+        return links.find((link) => link.id === $("linkSelect").value);
+      }
+
+      function clearPreview() {
+        qr = null;
+        previewReady = false;
+        $("qrPreview").replaceChildren();
+
+        const placeholder = document.createElement("p");
+        placeholder.className = "preview-placeholder";
+        placeholder.textContent = "Select a short link to generate a QR code.";
+
+        $("qrPreview").appendChild(placeholder);
+        $("previewCaption").textContent =
+          "Your QR code preview will appear here.";
+      }
+
+      function qrOptions(link, config = {}) {
+        return {
+          width: Number(config.size || $("size").value),
+          height: Number(config.size || $("size").value),
+          type: "svg",
+          data: link.short_url || config.shortUrl,
+          margin: 12,
+
+          qrOptions: {
+            errorCorrectionLevel: config.correction || $("correction").value,
+          },
+
+          dotsOptions: {
+            color: config.foreground || $("foreground").value,
+            type: "square",
+          },
+
+          cornersSquareOptions: {
+            color: config.foreground || $("foreground").value,
+            type: "square",
+          },
+
+          cornersDotOptions: {
+            color: config.foreground || $("foreground").value,
+            type: "square",
+          },
+
+          backgroundOptions: {
+            color: config.background || $("background").value,
+          },
+
+          image: config.logo || logoData || undefined,
+
+          imageOptions: {
+            hideBackgroundDots: true,
+            imageSize: 0.22,
+            margin: 5,
+            crossOrigin: "anonymous",
+          },
+        };
+      }
+
+      function generatePreview(config = null) {
+        const link = config
+          ? links.find((item) => item.id === config.linkId)
+          : selectedLink();
+
+        if (!link) {
+          clearPreview();
+          return;
+        }
+
+        if (config) {
+          $("linkSelect").value = config.linkId;
+          $("size").value = String(config.size);
+          $("correction").value = config.correction;
+          $("foreground").value = config.foreground;
+          $("background").value = config.background;
+
+          logoData = config.logo || null;
+          $("removeLogo").hidden = !logoData;
+          $("logoInput").value = "";
+        }
+
+        if (!window.QRCodeStyling) {
+          showMessage(
+            "QR generator library did not load. Check your internet connection.",
+            "error",
+          );
+          return;
+        }
+
+        $("qrPreview").replaceChildren();
+
+        qr = new QRCodeStyling(qrOptions(link, config || {}));
+        qr.append($("qrPreview"));
+
+        previewReady = true;
+        $("previewCaption").textContent = `Opens ${link.short_url}`;
+      }
+
+      function currentConfig() {
+        const link = selectedLink();
+
+        if (!link) {
+          throw new Error("Select a short link first.");
+        }
+
+        return {
+          linkId: link.id,
+          shortUrl: link.short_url,
+          size: Number($("size").value),
+          correction: $("correction").value,
+          foreground: $("foreground").value,
+          background: $("background").value,
+          logo: logoData,
+        };
+      }
+
+      async function saveQRCode(event) {
+        event.preventDefault();
+
+        const saveButton = $("saveButton");
+
+        try {
+          if (!selectedLink()) {
+            throw new Error("Select a short link first.");
+          }
+
+          if (!qr || !previewReady) {
+            generatePreview();
+          }
+
+          const config = currentConfig();
+
+          saveButton.disabled = true;
+          saveButton.textContent = "Saving...";
+
+          const result = await apiRequest("/api/qr-codes", {
+            method: "POST",
+            body: JSON.stringify({
+              link_id: config.linkId,
+              size: config.size,
+              correction: config.correction,
+              foreground: config.foreground,
+              background: config.background,
+              logo: config.logo,
+            }),
+          });
+
+          savedCodes.unshift(result.qr_code);
+          renderSavedCodes();
+
+          showMessage("QR configuration saved to MongoDB.", "success");
+        } catch (error) {
+          showMessage(error.message, "error");
+        } finally {
+          saveButton.disabled = false;
+          saveButton.textContent = "Save QR code";
+        }
+      }
+
+      async function downloadCurrent(extension) {
+        try {
+          const link = selectedLink();
+
+          if (!link) {
+            throw new Error("Select a short link first.");
+          }
+
+          if (!qr || !previewReady) {
+            generatePreview();
+          }
+
+          if (!qr) return;
+
+          await qr.download({
+            name: `shortie-${link.code}`,
+            extension,
+          });
+        } catch (error) {
+          showMessage(error.message, "error");
+        }
+      }
+
+      function renderSavedCodes() {
+        const body = $("savedQrBody");
+        body.replaceChildren();
+
+        if (!savedCodes.length) {
+          const row = document.createElement("tr");
+          const cell = document.createElement("td");
+
+          cell.colSpan = 5;
+          cell.className = "empty-cell";
+          cell.textContent = "No saved QR codes yet.";
+
+          row.appendChild(cell);
+          body.appendChild(row);
+          return;
+        }
+
+        savedCodes.forEach((config) => {
+          const row = document.createElement("tr");
+
+          const linkCell = document.createElement("td");
+          const linkLabel = document.createElement("strong");
+          linkLabel.className = "short-link-label";
+          linkLabel.textContent = config.shortUrl || "Link unavailable";
+          linkCell.appendChild(linkLabel);
+
+          const sizeCell = document.createElement("td");
+          sizeCell.textContent = `${config.size} px`;
+
+          const correctionCell = document.createElement("td");
+          correctionCell.textContent =
+            correctionNames[config.correction] || config.correction;
+
+          const dateCell = document.createElement("td");
+          const date = new Date(config.createdAt);
+          dateCell.textContent = Number.isNaN(date.getTime())
+            ? "Unknown"
+            : date.toLocaleDateString();
+
+          const actionsCell = document.createElement("td");
+          const actions = document.createElement("div");
+          actions.className = "saved-actions";
+
+          const editButton = document.createElement("button");
+          editButton.type = "button";
+          editButton.className = "secondary-button small-button";
+          editButton.textContent = "Load";
+          editButton.addEventListener("click", () => {
+            const link = links.find((item) => item.id === config.linkId);
+
+            if (!link) {
+              showMessage(
+                "The original short link is unavailable. Refresh your links.",
+                "error",
+              );
+              return;
+            }
+
+            generatePreview(config);
+            window.scrollTo({ top: 0, behavior: "smooth" });
+            showMessage("Saved configuration loaded.", "success");
+          });
+
+          const downloadButton = document.createElement("button");
+          downloadButton.type = "button";
+          downloadButton.className = "secondary-button small-button";
+          downloadButton.textContent = "Download";
+          downloadButton.addEventListener("click", async () => {
+            const link = links.find((item) => item.id === config.linkId);
+
+            if (!link) {
+              showMessage("The original short link is unavailable.", "error");
+              return;
+            }
+
+            try {
+              const savedQr = new QRCodeStyling(qrOptions(link, config));
+              await savedQr.download({
+                name: `shortie-${link.code}`,
+                extension: "png",
+              });
+            } catch (error) {
+              showMessage(`Download failed: ${error.message}`, "error");
+            }
+          });
+
+          const deleteButton = document.createElement("button");
+          deleteButton.type = "button";
+          deleteButton.className = "text-button";
+          deleteButton.textContent = "Delete";
+          deleteButton.addEventListener("click", async () => {
+            if (!confirm("Delete this saved QR configuration?")) return;
+
+            deleteButton.disabled = true;
+
+            try {
+              await apiRequest(
+                `/api/qr-codes/${encodeURIComponent(config.id)}`,
+                { method: "DELETE" },
+              );
+
+              savedCodes = savedCodes.filter((item) => item.id !== config.id);
+              renderSavedCodes();
+              showMessage("QR configuration deleted from MongoDB.", "success");
+            } catch (error) {
+              deleteButton.disabled = false;
+              showMessage(error.message, "error");
+            }
+          });
+
+          actions.append(editButton, downloadButton, deleteButton);
+          actionsCell.appendChild(actions);
+
+          row.append(linkCell, sizeCell, correctionCell, dateCell, actionsCell);
+
+          body.appendChild(row);
+        });
+      }
+
+      $("qrForm").addEventListener("submit", saveQRCode);
+
+      $("linkSelect").addEventListener("change", () => {
+        generatePreview();
+      });
+
+      ["foreground", "background", "size", "correction"].forEach((id) => {
+        $(id).addEventListener("input", () => generatePreview());
+        $(id).addEventListener("change", () => generatePreview());
+      });
+
+      $("logoInput").addEventListener("change", (event) => {
+        const file = event.target.files[0];
+
+        if (!file) return;
+
+        if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+          showMessage("Choose a PNG, JPEG or WebP image.", "error");
+          event.target.value = "";
+          return;
+        }
+
+        if (file.size > 2 * 1024 * 1024) {
+          showMessage("Please choose a logo smaller than 2 MB.", "error");
+          event.target.value = "";
+          return;
+        }
+
+        const reader = new FileReader();
+
+        reader.onload = () => {
+          const image = new Image();
+
+          image.onload = () => {
+            if (image.width > 1200 || image.height > 1200) {
+              showMessage(
+                "Logo dimensions must not exceed 1200 × 1200 px.",
+                "error",
+              );
+              event.target.value = "";
+              return;
+            }
+
+            logoData = reader.result;
+            $("removeLogo").hidden = false;
+            $("correction").value = "H";
+            generatePreview();
+
+            showMessage(
+              "Logo added. Test-scan your QR code before using it.",
+              "info",
+            );
+          };
+
+          image.onerror = () => {
+            showMessage("Unable to read the selected image.", "error");
+          };
+
+          image.src = reader.result;
+        };
+
+        reader.readAsDataURL(file);
+      });
+
+      $("removeLogo").addEventListener("click", () => {
+        logoData = null;
+        $("logoInput").value = "";
+        $("removeLogo").hidden = true;
+        generatePreview();
+      });
+
+      $("refreshButton").addEventListener("click", async () => {
+        try {
+          await Promise.all([loadLinks(), loadSavedCodes()]);
+          showMessage(
+            "Links and saved QR configurations refreshed.",
+            "success",
+          );
+        } catch (error) {
+          showMessage(error.message, "error");
+        }
+      });
+
+      $("logoutButton").addEventListener("click", () => {
+        sessionStorage.removeItem("shortie_token");
+        window.location.replace("login.html");
+      });
+
+      initialize();
+    </script>
+  </body>
+</html>

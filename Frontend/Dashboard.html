@@ -3,43 +3,34 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
     <title>Shortie Dashboard</title>
 
-    <!-- Google Font -->
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-
-    <!-- Dashboard CSS -->
     <link rel="stylesheet" href="Dashboard.css" />
   </head>
 
   <body>
     <div class="dashboard">
-      <!-- Sidebar -->
       <aside class="sidebar">
-        <!-- Logo -->
-        <a href="#" class="logo">Shortie</a>
+        <a href="Dashboard.html" class="logo">Shortie</a>
 
-        <!-- Navigation -->
         <nav class="sidebar-nav">
           <a href="Dashboard.html" class="nav-link active">Links</a>
           <a href="ShortenURL.html" class="nav-link">Shorten URL</a>
           <a href="#" class="nav-link">Analytics</a>
           <a href="#" class="nav-link">Campaigns</a>
-          <a href="#" class="nav-link">QR codes</a>
+          <a href="QRcodes.html" class="nav-link">QR codes</a>
           <a href="#" class="nav-link">Domains</a>
           <a href="#" class="nav-link">API keys</a>
           <a href="#" class="nav-link">Settings</a>
         </nav>
 
-        <!-- Logged-in User Profile: Bottom of Sidebar -->
         <div class="sidebar-user">
           <div class="user-info">
             <div class="user-avatar" id="userAvatar">--</div>
-
             <div class="user-details">
               <h3 id="userName">Loading...</h3>
               <p id="userEmail">Loading...</p>
@@ -52,9 +43,7 @@
         </div>
       </aside>
 
-      <!-- Main Dashboard -->
       <main class="main-content">
-        <!-- Header -->
         <header class="page-header">
           <h1>Links</h1>
 
@@ -62,41 +51,43 @@
             <input
               type="search"
               class="search-input"
+              id="searchInput"
               placeholder="Search links, tags, campaigns"
-              aria-label="Search links, tags, campaigns"
+              aria-label="Search links"
             />
 
-            <button type="button" class="new-link-button">New link</button>
+            <button type="button" class="new-link-button" id="newLinkButton">
+              New link
+            </button>
           </div>
         </header>
 
-        <!-- Dashboard Description -->
-        <p class="page-description">Sample data for layout preview</p>
+        <p class="page-description" id="pageDescription">
+          Loading your saved links...
+        </p>
 
-        <!-- Statistics Cards -->
         <section class="stats-grid">
           <article class="stat-card">
             <p class="stat-label">Total clicks</p>
-            <h2>—</h2>
+            <h2 id="totalClicks">—</h2>
           </article>
 
           <article class="stat-card">
-            <p class="stat-label">Est. unique visitors</p>
-            <h2>—</h2>
+            <p class="stat-label">Unique visitors</p>
+            <h2 id="uniqueVisitors">N/A</h2>
           </article>
 
           <article class="stat-card">
             <p class="stat-label">Active links</p>
-            <h2>—</h2>
+            <h2 id="activeLinks">—</h2>
           </article>
 
           <article class="stat-card">
             <p class="stat-label">Expiring soon</p>
-            <h2>—</h2>
+            <h2 id="expiringSoon">—</h2>
           </article>
         </section>
 
-        <!-- Links Table -->
         <section class="links-section">
           <table class="links-table">
             <thead>
@@ -108,82 +99,340 @@
               </tr>
             </thead>
 
-            <tbody>
+            <tbody id="linksTableBody">
               <tr>
-                <td colspan="4" class="empty-state">
-                  <div class="empty-state-content">
-                    <h3>No links yet</h3>
-                    <p>Create your first short link to see it here.</p>
-                  </div>
-                </td>
+                <td colspan="4" class="empty-state">Loading saved links...</td>
               </tr>
             </tbody>
           </table>
         </section>
+
+        <p
+          class="page-description"
+          id="statusMessage"
+          role="status"
+          aria-live="polite"
+        ></p>
       </main>
     </div>
 
-    <!---->
-
-    <!-- Dashboard Authentication -->
     <script>
       const API_URL = "http://127.0.0.1:8000";
       const token = sessionStorage.getItem("shortie_token");
 
-      const userName = document.getElementById("userName");
-      const userEmail = document.getElementById("userEmail");
-      const userAvatar = document.getElementById("userAvatar");
-      const logoutButton = document.getElementById("logoutButton");
+      const $ = (id) => document.getElementById(id);
 
-      // Redirect if the user is not logged in.
+      let savedLinks = [];
+
       if (!token) {
         window.location.replace("login.html");
       } else {
-        loadUser();
+        initializeDashboard();
       }
 
-      // Load the logged-in user's information.
-      async function loadUser() {
+      async function initializeDashboard() {
         try {
-          const response = await fetch(`${API_URL}/api/auth/me`, {
-            method: "GET",
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          });
-
-          if (!response.ok) {
-            sessionStorage.removeItem("shortie_token");
-            window.location.replace("login.html");
-            return;
-          }
-
-          const result = await response.json();
-          const user = result.user;
-
-          userName.textContent = user.full_name;
-          userEmail.textContent = user.email;
-
-          // Generate initials from the user's name.
-          userAvatar.textContent = user.full_name
-            .trim()
-            .split(/\s+/)
-            .filter(Boolean)
-            .slice(0, 2)
-            .map((name) => name[0].toUpperCase())
-            .join("");
+          await loadUser();
+          await loadLinks();
         } catch (error) {
-          console.error("Failed to load user:", error);
-
-          userName.textContent = "Unable to load user";
-          userEmail.textContent = "Check your connection";
+          console.error("Dashboard initialization failed:", error);
         }
       }
 
-      // Log out.
-      logoutButton.addEventListener("click", () => {
+      // API requests
+      async function apiRequest(path, options = {}) {
+        const response = await fetch(`${API_URL}${path}`, {
+          ...options,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            ...(options.body
+              ? {
+                  "Content-Type": "application/json",
+                }
+              : {}),
+            ...(options.headers || {}),
+          },
+        });
+
+        if (response.status === 401 || response.status === 403) {
+          sessionStorage.removeItem("shortie_token");
+          window.location.replace("login.html");
+          throw new Error("Your session has expired. Please log in again.");
+        }
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(
+            typeof data.detail === "string"
+              ? data.detail
+              : "The server request failed.",
+          );
+        }
+
+        return data;
+      }
+
+      // User profile
+      async function loadUser() {
+        const result = await apiRequest("/api/auth/me");
+        const user = result.user;
+
+        $("userName").textContent = user.full_name;
+        $("userEmail").textContent = user.email;
+
+        $("userAvatar").textContent = user.full_name
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((part) => part.charAt(0).toUpperCase())
+          .join("");
+      }
+
+      // Load real links from the backend
+      async function loadLinks() {
+        $("statusMessage").textContent = "Loading saved links...";
+
+        try {
+          const result = await apiRequest("/api/links");
+
+          if (!Array.isArray(result.links)) {
+            throw new Error("The API response does not contain a links array.");
+          }
+
+          savedLinks = result.links;
+
+          renderStatistics();
+          renderLinks();
+
+          $("pageDescription").textContent =
+            `${savedLinks.length} saved link${savedLinks.length === 1 ? "" : "s"}`;
+
+          $("statusMessage").textContent = "";
+        } catch (error) {
+          console.error("Failed to load links:", error);
+
+          $("pageDescription").textContent =
+            "Unable to retrieve your saved links.";
+
+          $("statusMessage").textContent =
+            `${error.message} Check that the backend is running.`;
+
+          $("totalClicks").textContent = "—";
+          $("activeLinks").textContent = "—";
+          $("expiringSoon").textContent = "—";
+          $("uniqueVisitors").textContent = "N/A";
+
+          showEmptyState("Unable to load links. Check the backend connection.");
+        }
+      }
+
+      // Link status
+      function getStatus(link) {
+        if (link.archived === true) {
+          return "Archived";
+        }
+
+        if (link.active === false) {
+          return "Disabled";
+        }
+
+        if (link.expiry_date) {
+          const expiry = new Date(link.expiry_date);
+
+          if (!Number.isNaN(expiry.getTime())) {
+            if (expiry.getTime() <= Date.now()) {
+              return "Expired";
+            }
+
+            const daysLeft = Math.ceil(
+              (expiry.getTime() - Date.now()) / 86400000,
+            );
+
+            if (daysLeft <= 2) {
+              return `Expires in ${daysLeft}d`;
+            }
+          }
+        }
+
+        return "Active";
+      }
+
+      // Real statistics only
+      function renderStatistics() {
+        const totalClicks = savedLinks.reduce(
+          (total, link) => total + (Number(link.clicks) || 0),
+          0,
+        );
+
+        const activeCount = savedLinks.filter(
+          (link) => getStatus(link) === "Active",
+        ).length;
+
+        const now = Date.now();
+        const twoDays = 2 * 24 * 60 * 60 * 1000;
+
+        const expiringCount = savedLinks.filter((link) => {
+          if (getStatus(link) !== "Active" || !link.expiry_date) {
+            return false;
+          }
+
+          const expiry = new Date(link.expiry_date).getTime();
+
+          return expiry > now && expiry <= now + twoDays;
+        }).length;
+
+        $("totalClicks").textContent = totalClicks.toLocaleString();
+        $("activeLinks").textContent = activeCount.toLocaleString();
+        $("expiringSoon").textContent = expiringCount.toLocaleString();
+
+        // Unique visitor tracking is not yet implemented by the backend.
+        $("uniqueVisitors").textContent = "N/A";
+      }
+
+      // Empty and error states
+      function showEmptyState(message) {
+        const body = $("linksTableBody");
+        body.replaceChildren();
+
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+
+        cell.colSpan = 4;
+        cell.className = "empty-state";
+        cell.textContent = message;
+
+        row.appendChild(cell);
+        body.appendChild(row);
+      }
+
+      // Build a destination preview with More/Less
+      function createDestination(originalUrl) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "destination-wrap";
+
+        const destination = document.createElement("span");
+        destination.className = "destination-url";
+
+        const fullUrl = originalUrl || "";
+        destination.textContent = fullUrl;
+
+        wrapper.appendChild(destination);
+
+        if (fullUrl.length > 45) {
+          destination.classList.add("collapsed");
+
+          const toggle = document.createElement("button");
+          toggle.type = "button";
+          toggle.className = "url-toggle";
+          toggle.textContent = "More";
+          toggle.setAttribute("aria-expanded", "false");
+
+          toggle.addEventListener("click", () => {
+            const isExpanded = toggle.getAttribute("aria-expanded") === "true";
+
+            toggle.setAttribute("aria-expanded", String(!isExpanded));
+            destination.classList.toggle("collapsed", isExpanded);
+            toggle.textContent = isExpanded ? "More" : "Less";
+          });
+
+          wrapper.appendChild(toggle);
+        }
+
+        return wrapper;
+      }
+
+      // Render the table
+      function renderLinks() {
+        const body = $("linksTableBody");
+        const query = $("searchInput").value.trim().toLowerCase();
+
+        body.replaceChildren();
+
+        const filteredLinks = savedLinks.filter((link) => {
+          const searchable = [
+            link.short_url,
+            link.code,
+            link.original_url,
+            link.campaign,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+
+          return searchable.includes(query);
+        });
+
+        if (filteredLinks.length === 0) {
+          showEmptyState(
+            query
+              ? "No matching links found."
+              : "No saved links yet. Select New link to create one.",
+          );
+          return;
+        }
+
+        filteredLinks.forEach((link) => {
+          const row = document.createElement("tr");
+
+          // Link column
+          const linkCell = document.createElement("td");
+
+          const shortLink = document.createElement("a");
+          shortLink.className = "short-link";
+          shortLink.href = link.short_url || "#";
+          shortLink.textContent = link.short_url || link.code || "—";
+          shortLink.target = "_blank";
+          shortLink.rel = "noopener noreferrer";
+
+          linkCell.appendChild(shortLink);
+          linkCell.appendChild(createDestination(link.original_url));
+
+          // Campaign column
+          const campaignCell = document.createElement("td");
+          campaignCell.textContent = link.campaign || "None";
+
+          // Status column
+          const statusCell = document.createElement("td");
+          const badge = document.createElement("span");
+          const status = getStatus(link);
+
+          badge.className = "status-badge";
+          badge.dataset.status = status.toLowerCase().replace(/\s+/g, "-");
+          badge.textContent = status;
+
+          statusCell.appendChild(badge);
+
+          // Click count
+          const clicksCell = document.createElement("td");
+          clicksCell.textContent = (Number(link.clicks) || 0).toLocaleString();
+
+          row.append(linkCell, campaignCell, statusCell, clicksCell);
+
+          body.appendChild(row);
+        });
+      }
+
+      // Search
+      $("searchInput").addEventListener("input", renderLinks);
+
+      // Create link
+      $("newLinkButton").addEventListener("click", () => {
+        window.location.href = "ShortenURL.html";
+      });
+
+      // Logout
+      $("logoutButton").addEventListener("click", () => {
         sessionStorage.removeItem("shortie_token");
         window.location.replace("login.html");
+      });
+
+      // Refresh links when returning to the tab
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden && token) {
+          loadLinks();
+        }
       });
     </script>
   </body>
