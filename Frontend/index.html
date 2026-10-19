@@ -1,0 +1,194 @@
+<!--HTML-Bootstrap’s-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shortie</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+      integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB"
+      crossorigin="anonymous"
+    />
+    <link rel="stylesheet" href="index.css" />
+  </head>
+  <body>
+    <script
+      src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"
+      integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js"
+      integrity="sha384-I7E8VVD/ismYTF4hNIPjVp/Zjvgyol6VFvRkX/vR+Vc4jQkC+hVqc2pM8ODewa9r"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.min.js"
+      integrity="sha384-G/EV+4j2dNv+tEPo3++6LCgdCROaejBqfUeNjuKAiuXbjrxilcCdDz6ZAVfHWe1Y"
+      crossorigin="anonymous"
+    ></script>
+
+    <!-- Navbar -->
+    <div class="main_Navbar">
+      <nav>
+        <div class="logo">Shortie</div>
+
+        <div class="Navbar">
+          <a href="#features">Features</a>
+          <a href="#pricing">Pricing</a>
+          <a href="#api">API</a>
+        </div>
+
+        <div class="Login_Button">
+          <a href="login.html"><button>Log in</button></a>
+        </div>
+
+        <div class="SignUp_Button">
+          <a href="signin.html"><button>Sign up free</button></a>
+        </div>
+      </nav>
+    </div>
+    <!-- Hero Section -->
+    <main>
+      <section class="hero">
+        <h1>Shorten links. Track performance. Grow smarter.</h1>
+        <p>
+          Short links, QR codes and campaign analytics in one dashboard, built
+          for creators, marketers and teams.
+        </p>
+        <form class="shorten-form">
+          <input
+            type="text"
+            placeholder="https://your-long-destination-url.com/page"
+            aria-label=".form-control-lg example"
+          />
+          <button>Shorten</button>
+        </form>
+        <div class="your-long-destination-url">
+          Custom alias, expiry date and QR code are one click away after
+          creating.
+        </div>
+      </section>
+
+      <!-- Features Section -->
+      <section class="features-section" id="features">
+        <h2>Everything a link needs</h2>
+
+        <div class="features-grid">
+          <div class="card feature-card">
+            <div class="card-body">
+              <h5 class="card-title">Branded short links</h5>
+              <p class="card-text">
+                Custom aliases, destination edits, scheduling and expiry with a
+                fallback URL.
+              </p>
+            </div>
+          </div>
+
+          <div class="card feature-card">
+            <div class="card-body">
+              <h5 class="card-title">QR codes</h5>
+              <p class="card-text">
+                Custom colors, size, error correction and logo. Download PNG or
+                SVG.
+              </p>
+            </div>
+          </div>
+
+          <div class="card feature-card">
+            <div class="card-body">
+              <h5 class="card-title">Analytics</h5>
+              <p class="card-text">
+                Clicks, estimated uniques, devices, referrers and CSV export
+                with bot filtering.
+              </p>
+            </div>
+          </div>
+
+          <div class="card feature-card">
+            <div class="card-body">
+              <h5 class="card-title">Campaigns and UTM</h5>
+              <p class="card-text">
+                Group links by campaign and compare channels.
+              </p>
+            </div>
+          </div>
+
+          <div class="card feature-card">
+            <div class="card-body">
+              <h5 class="card-title">Security controls</h5>
+              <p class="card-text">
+                Password links, malicious URL checks, rate limits and abuse
+                reporting.
+              </p>
+            </div>
+          </div>
+
+          <div class="card feature-card">
+            <div class="card-body">
+              <h5 class="card-title">API and webhooks</h5>
+              <p class="card-text">
+                API keys, usage quotas and event webhooks for developers.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Pricing Section -->
+      <section class="pricing-section" id="pricing">
+        <h2>Plans</h2>
+
+        <div class="pricing-grid">
+          <div class="card pricing-card">
+            <div class="card-body">
+              <h5 class="card-title">Free</h5>
+              <p class="card-text">Basic links, QR codes, limited analytics</p>
+              <p class="plan-price">[PRICE]</p>
+            </div>
+          </div>
+
+          <div class="card pricing-card pro-card">
+            <div class="card-body">
+              <h5 class="card-title">Pro</h5>
+              <p class="card-text">
+                Custom aliases, advanced analytics, scheduled links
+              </p>
+              <p class="plan-price">[PRICE]</p>
+            </div>
+          </div>
+
+          <div class="card pricing-card">
+            <div class="card-body">
+              <h5 class="card-title">Business</h5>
+              <p class="card-text">
+                Custom domains, bulk processing, campaign reports
+              </p>
+              <p class="plan-price">[PRICE]</p>
+            </div>
+          </div>
+
+          <div class="card pricing-card">
+            <div class="card-body">
+              <h5 class="card-title">Team</h5>
+              <p class="card-text">Shared workspaces, permissions</p>
+              <p class="plan-price">[PRICE]</p>
+            </div>
+          </div>
+
+          <div class="card pricing-card">
+            <div class="card-body">
+              <h5 class="card-title">Enterprise</h5>
+              <p class="card-text">
+                Advanced security, audit logs, priority support
+              </p>
+              <p class="plan-price">[CONTACT]</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

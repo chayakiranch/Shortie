@@ -1,0 +1,194 @@
+@import url("https://googleapis.com");
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: "Inter", sans-serif;
+}
+
+body {
+  font-family: "", sans-serif;
+  background-color: #f5f6f2;
+  color: #14231e;
+}
+
+.login-page {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* Left Section */
+.login-left {
+  width: 46.1%;
+  background-color: #10231e;
+  color: #ffffff;
+  padding: 48px 56px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.login-logo {
+  font-size: 28px;
+  font-weight: 800;
+}
+
+.left-content {
+  max-width: 480px;
+}
+
+.left-content h1 {
+  font-size: 42px;
+  line-height: 1.13;
+  letter-spacing: -1px;
+  font-weight: 800;
+  margin-bottom: 22px;
+}
+
+.left-content p {
+  font-size: 18px;
+  line-height: 1.5;
+  color: #c2ccc7;
+}
+
+.left-footer {
+  font-size: 14px;
+  color: #c2ccc7;
+}
+
+/* Right Section */
+.login-right {
+  width: 53.9%;
+  background-color: #f5f6f2;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 40px;
+}
+
+.login-container {
+  width: 100%;
+  max-width: 420px;
+}
+
+.login-container h2 {
+  font-size: 34px;
+  font-weight: 800;
+  margin-bottom: 18px;
+}
+
+.login-description {
+  font-size: 16px;
+  color: #596660;
+  line-height: 1.5;
+  margin-bottom: 18px;
+}
+
+/* Google Button */
+.google-button {
+  width: 100%;
+  height: 48px;
+  background-color: #ffffff;
+  border: 1px solid #d9dfd7;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.google-button span {
+  margin-right: 8px;
+  font-size: 20px;
+}
+
+/* Divider */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.divider span {
+  flex: 1;
+  height: 1px;
+  background-color: #d9dfd7;
+}
+
+.divider p {
+  font-size: 13px;
+  color: #596660;
+  white-space: nowrap;
+}
+
+/* Form */
+.login-container label {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 7px;
+}
+
+.login-container input {
+  width: 100%;
+  height: 50px;
+  padding: 0 14px;
+  border: 1px solid #d9dfd7;
+  border-radius: 10px;
+  background-color: #ffffff;
+  font-family: inherit;
+  font-size: 15px;
+  margin-bottom: 18px;
+  outline: none;
+}
+
+.login-container input:focus {
+  border-color: #0c8062;
+}
+
+/* Forgot Password */
+.forgot-password {
+  text-align: right;
+  margin-top: -9px;
+  margin-bottom: 18px;
+}
+
+.forgot-password a,
+.signup-text a {
+  color: #0c8062;
+  font-weight: 700;
+  text-decoration: underline;
+  font-size: 14px;
+}
+
+/* Login Button */
+.login-button {
+  width: 100%;
+  height: 48px;
+  border: none;
+  border-radius: 10px;
+  background-color: #0c8062;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.login-button:hover {
+  background-color: #09694f;
+}
+
+/* Signup Text */
+.signup-text {
+  margin-top: 20px;
+  text-align: center;
+  color: #596660;
+  font-size: 15px;
+}
+
+.signup-text a {
+  font-size: 15px;
+}

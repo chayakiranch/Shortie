@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>Shortie Dashboard</title>
+
+    <!-- Google Font -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- Dashboard CSS -->
+    <link rel="stylesheet" href="Dashboard.css" />
+  </head>
+
+  <body>
+    <div class="dashboard">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <!-- Logo -->
+        <a href="#" class="logo">Shortie</a>
+
+        <!-- Navigation -->
+        <nav class="sidebar-nav">
+          <a href="Dashboard.html" class="nav-link active">Links</a>
+          <a href="ShortenURL.html" class="nav-link">Shorten URL</a>
+          <a href="#" class="nav-link">Analytics</a>
+          <a href="#" class="nav-link">Campaigns</a>
+          <a href="#" class="nav-link">QR codes</a>
+          <a href="#" class="nav-link">Domains</a>
+          <a href="#" class="nav-link">API keys</a>
+          <a href="#" class="nav-link">Settings</a>
+        </nav>
+
+        <!-- Logged-in User Profile: Bottom of Sidebar -->
+        <div class="sidebar-user">
+          <div class="user-info">
+            <div class="user-avatar" id="userAvatar">--</div>
+
+            <div class="user-details">
+              <h3 id="userName">Loading...</h3>
+              <p id="userEmail">Loading...</p>
+            </div>
+          </div>
+
+          <button type="button" class="logout-button" id="logoutButton">
+            Log out
+          </button>
+        </div>
+      </aside>
+
+      <!-- Main Dashboard -->
+      <main class="main-content">
+        <!-- Header -->
+        <header class="page-header">
+          <h1>Links</h1>
+
+          <div class="header-actions">
+            <input
+              type="search"
+              class="search-input"
+              placeholder="Search links, tags, campaigns"
+              aria-label="Search links, tags, campaigns"
+            />
+
+            <button type="button" class="new-link-button">New link</button>
+          </div>
+        </header>
+
+        <!-- Dashboard Description -->
+        <p class="page-description">Sample data for layout preview</p>
+
+        <!-- Statistics Cards -->
+        <section class="stats-grid">
+          <article class="stat-card">
+            <p class="stat-label">Total clicks</p>
+            <h2>—</h2>
+          </article>
+
+          <article class="stat-card">
+            <p class="stat-label">Est. unique visitors</p>
+            <h2>—</h2>
+          </article>
+
+          <article class="stat-card">
+            <p class="stat-label">Active links</p>
+            <h2>—</h2>
+          </article>
+
+          <article class="stat-card">
+            <p class="stat-label">Expiring soon</p>
+            <h2>—</h2>
+          </article>
+        </section>
+
+        <!-- Links Table -->
+        <section class="links-section">
+          <table class="links-table">
+            <thead>
+              <tr>
+                <th>Link</th>
+                <th>Campaign</th>
+                <th>Status</th>
+                <th>Clicks</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              <tr>
+                <td colspan="4" class="empty-state">
+                  <div class="empty-state-content">
+                    <h3>No links yet</h3>
+                    <p>Create your first short link to see it here.</p>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </main>
+    </div>
+
+    <!---->
+
+    <!-- Dashboard Authentication -->
+    <script>
+      const API_URL = "http://127.0.0.1:8000";
+      const token = sessionStorage.getItem("shortie_token");
+
+      const userName = document.getElementById("userName");
+      const userEmail = document.getElementById("userEmail");
+      const userAvatar = document.getElementById("userAvatar");
+      const logoutButton = document.getElementById("logoutButton");
+
+      // Redirect if the user is not logged in.
+      if (!token) {
+        window.location.replace("login.html");
+      } else {
+        loadUser();
+      }
+
+      // Load the logged-in user's information.
+      async function loadUser() {
+        try {
+          const response = await fetch(`${API_URL}/api/auth/me`, {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+
+          if (!response.ok) {
+            sessionStorage.removeItem("shortie_token");
+            window.location.replace("login.html");
+            return;
+          }
+
+          const result = await response.json();
+          const user = result.user;
+
+          userName.textContent = user.full_name;
+          userEmail.textContent = user.email;
+
+          // Generate initials from the user's name.
+          userAvatar.textContent = user.full_name
+            .trim()
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((name) => name[0].toUpperCase())
+            .join("");
+        } catch (error) {
+          console.error("Failed to load user:", error);
+
+          userName.textContent = "Unable to load user";
+          userEmail.textContent = "Check your connection";
+        }
+      }
+
+      // Log out.
+      logoutButton.addEventListener("click", () => {
+        sessionStorage.removeItem("shortie_token");
+        window.location.replace("login.html");
+      });
+    </script>
+  </body>
+</html>

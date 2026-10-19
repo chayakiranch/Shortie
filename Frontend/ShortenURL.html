@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Shortie - Shorten URL</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="ShortenURL.css" />
+  </head>
+
+  <body>
+    <div class="app-layout">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <a href="Dashboard.html" class="logo">Shortie</a>
+
+        <nav class="sidebar-nav">
+          <a href="Dashboard.html" class="nav-link">Links</a>
+          <a href="ShortenURL.html" class="nav-link active">Shorten URL</a>
+          <a href="#" class="nav-link">Analytics</a>
+          <a href="#" class="nav-link">Campaigns</a>
+          <a href="#" class="nav-link">QR codes</a>
+          <a href="#" class="nav-link">Domains</a>
+          <a href="#" class="nav-link">API keys</a>
+          <a href="#" class="nav-link">Settings</a>
+        </nav>
+
+        <!---->
+        <div class="sidebar-user">
+          <div class="user-info">
+            <div class="user-avatar" id="userAvatar">--</div>
+            <div class="user-details">
+              <h3 id="userName">Loading...</h3>
+              <p id="userEmail">Loading...</p>
+            </div>
+          </div>
+          <button class="logout-button" id="logoutButton" type="button">
+            Log out
+          </button>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="main-content">
+        <header class="page-heading">
+          <h1>Shorten a URL</h1>
+          <p>
+            Paste a long link and get a unique short link that redirects to it.
+          </p>
+        </header>
+
+        <!-- URL Form -->
+        <section class="form-card">
+          <form id="shortenForm">
+            <div class="form-group">
+              <label for="originalUrl">Original URL</label>
+              <input
+                type="url"
+                id="originalUrl"
+                placeholder="https://example.com/very/long/page?utm_source=newsletter"
+                required
+              />
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="customAlias">Custom alias (optional)</label>
+                <input
+                  type="text"
+                  id="customAlias"
+                  placeholder="my-campaign"
+                  maxlength="50"
+                  pattern="[A-Za-z0-9_-]+"
+                  title="Use letters, numbers, hyphens, or underscores."
+                />
+              </div>
+
+              <div class="form-group">
+                <label for="expiryDate">Expiry date (optional)</label>
+                <input type="date" id="expiryDate" />
+              </div>
+            </div>
+
+            <p class="form-help">
+              Leave the alias empty to get an auto-generated short code. Aliases
+              must be unique.
+            </p>
+
+            <button class="primary-button" type="submit" id="shortenButton">
+              Shorten URL
+            </button>
+
+            <p id="formMessage" class="form-message" role="status"></p>
+          </form>
+        </section>
+
+        <!-- Result: hidden until a demo link is created -->
+        <section class="result-card" id="resultCard" hidden>
+          <span class="result-badge">Demo result — not saved to server</span>
+
+          <div class="result-main">
+            <div class="result-info">
+              <h2 id="shortUrlText"></h2>
+              <p id="destinationText"></p>
+            </div>
+
+            <div class="result-actions">
+              <button
+                class="primary-button"
+                type="button"
+                id="copyResultButton"
+              >
+                Copy link
+              </button>
+              <button class="secondary-button" type="button" id="showQrButton">
+                Show QR
+              </button>
+            </div>
+          </div>
+
+          <div class="qr-container" id="qrContainer" hidden>
+            <img id="qrImage" alt="QR code for the short URL" />
+          </div>
+        </section>
+
+        <!-- Recent Links -->
+        <section class="recent-section">
+          <h2>Recent links</h2>
+          <p class="section-subtitle">Links created in this browser session</p>
+
+          <div class="table-card">
+            <table class="links-table">
+              <thead>
+                <tr>
+                  <th>Short link / original</th>
+                  <th>Created</th>
+                  <th>Clicks</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="recentLinksBody">
+                <tr>
+                  <td colspan="4" class="empty-state">No links created yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Error examples -->
+        <section class="error-card">
+          <h3>Validation examples</h3>
+          <p>
+            Invalid URL: Enter a valid link starting with http:// or https://
+          </p>
+          <p>Alias taken: That alias is already in use. Try another.</p>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const API_URL = "http://127.0.0.1:8000";
+      const token = sessionStorage.getItem("shortie_token");
+
+      const $ = (id) => document.getElementById(id);
+
+      const form = $("shortenForm");
+      const urlInput = $("originalUrl");
+      const aliasInput = $("customAlias");
+      const expiryInput = $("expiryDate");
+      const formMessage = $("formMessage");
+      const resultCard = $("resultCard");
+      const recentLinksBody = $("recentLinksBody");
+
+      // Require an existing login.
+      if (!token) {
+        window.location.replace("login.html");
+      } else {
+        loadUser();
+      }
+
+      async function loadUser() {
+        try {
+          const response = await fetch(`${API_URL}/api/auth/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+
+          if (response.status === 401 || response.status === 403) {
+            sessionStorage.removeItem("shortie_token");
+            window.location.replace("login.html");
+            return;
+          }
+
+          if (!response.ok) throw new Error("Could not load profile");
+
+          const data = await response.json();
+          const user = data.user;
+
+          $("userName").textContent = user.full_name;
+          $("userEmail").textContent = user.email;
+          $("userAvatar").textContent = user.full_name
+            .trim()
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((part) => part[0].toUpperCase())
+            .join("");
+        } catch (error) {
+          console.error("Profile error:", error);
+          $("userName").textContent = "Profile unavailable";
+          $("userEmail").textContent = "Check backend connection";
+        }
+      }
+
+      $("logoutButton").addEventListener("click", () => {
+        sessionStorage.removeItem("shortie_token");
+        window.location.replace("login.html");
+      });
+
+      // Frontend-only demonstration.
+      // Replace this with the real URL-shortening API when implemented.
+      const demoLinks = [];
+      const usedAliases = new Set();
+
+      function makeCode() {
+        return Math.random().toString(36).slice(2, 8);
+      }
+
+      function validHttpUrl(value) {
+        try {
+          const url = new URL(value);
+          return url.protocol === "http:" || url.protocol === "https:";
+        } catch {
+          return false;
+        }
+      }
+
+      function showMessage(message, type = "error") {
+        formMessage.textContent = message;
+        formMessage.className = `form-message ${type}`;
+      }
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+
+        const originalUrl = urlInput.value.trim();
+        const alias = aliasInput.value.trim();
+        const expiryDate = expiryInput.value;
+
+        if (!validHttpUrl(originalUrl)) {
+          showMessage("Enter a valid URL beginning with http:// or https://");
+          return;
+        }
+
+        if (alias && !/^[A-Za-z0-9_-]+$/.test(alias)) {
+          showMessage(
+            "Alias can contain letters, numbers, hyphens and underscores.",
+          );
+          return;
+        }
+
+        if (alias && usedAliases.has(alias.toLowerCase())) {
+          showMessage("That alias is already in use. Try another.");
+          return;
+        }
+
+        if (expiryDate && expiryDate < new Date().toISOString().slice(0, 10)) {
+          showMessage("Expiry date cannot be in the past.");
+          return;
+        }
+
+        const code = alias || makeCode();
+
+        if (usedAliases.has(code.toLowerCase())) {
+          showMessage("Code already used. Please try again.");
+          return;
+        }
+
+        usedAliases.add(code.toLowerCase());
+
+        const shortUrl = `${window.location.origin}/s/${code}`;
+
+        const item = {
+          code,
+          shortUrl,
+          originalUrl,
+          createdAt: new Date(),
+          expiryDate,
+          clicks: 0,
+        };
+
+        demoLinks.unshift(item);
+        renderRecentLinks();
+
+        $("shortUrlText").textContent = shortUrl;
+        $("destinationText").textContent = `Redirects to: ${originalUrl}`;
+        resultCard.hidden = false;
+        $("qrContainer").hidden = true;
+
+        showMessage("Demo link generated in this browser only.", "success");
+      });
+
+      $("copyResultButton").addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText($("shortUrlText").textContent);
+          $("copyResultButton").textContent = "Copied!";
+          setTimeout(
+            () => ($("copyResultButton").textContent = "Copy link"),
+            1500,
+          );
+        } catch {
+          showMessage("Clipboard access failed. Copy the link manually.");
+        }
+      });
+
+      $("showQrButton").addEventListener("click", () => {
+        const shortUrl = $("shortUrlText").textContent;
+        const qrContainer = $("qrContainer");
+        const qrImage = $("qrImage");
+
+        // Uses a QR image service for this UI demo.
+        qrImage.src =
+          "https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=" +
+          encodeURIComponent(shortUrl);
+
+        qrContainer.hidden = !qrContainer.hidden;
+      });
+
+      function renderRecentLinks() {
+        recentLinksBody.replaceChildren();
+
+        if (demoLinks.length === 0) {
+          const row = document.createElement("tr");
+          const cell = document.createElement("td");
+          cell.colSpan = 4;
+          cell.className = "empty-state";
+          cell.textContent = "No links created yet.";
+          row.appendChild(cell);
+          recentLinksBody.appendChild(row);
+          return;
+        }
+
+        demoLinks.forEach((link) => {
+          const row = document.createElement("tr");
+          const linkCell = document.createElement("td");
+          const createdCell = document.createElement("td");
+          const clicksCell = document.createElement("td");
+          const actionCell = document.createElement("td");
+
+          const short = document.createElement("strong");
+          short.textContent = link.shortUrl;
+
+          const original = document.createElement("small");
+          original.textContent = link.originalUrl;
+
+          linkCell.append(short, document.createElement("br"), original);
+          createdCell.textContent = "Just now";
+          clicksCell.textContent = String(link.clicks);
+
+          const copyButton = document.createElement("button");
+          copyButton.className = "secondary-button small-button";
+          copyButton.textContent = "Copy";
+          copyButton.addEventListener("click", async () => {
+            try {
+              await navigator.clipboard.writeText(link.shortUrl);
+              copyButton.textContent = "Copied!";
+              setTimeout(() => (copyButton.textContent = "Copy"), 1500);
+            } catch {
+              showMessage("Clipboard access failed.");
+            }
+          });
+
+          actionCell.appendChild(copyButton);
+          row.append(linkCell, createdCell, clicksCell, actionCell);
+          recentLinksBody.appendChild(row);
+        });
+      }
+    </script>
+  </body>
+</html>

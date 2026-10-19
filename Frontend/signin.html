@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Signin</title>
+    <link rel="stylesheet" href="signin.css" />
+  </head>
+  <body>
+    <div class="signup-page">
+      <!-- Left Section -->
+      <section class="signup-left">
+        <div class="signup-logo">Shortie</div>
+
+        <div class="signup-left-content">
+          <h1>Shorten links. Track performance. Grow smarter.</h1>
+          <p>Short links, QR codes and campaign analytics in one dashboard.</p>
+        </div>
+
+        <div class="signup-footer">Smart URL shortener and QR platform</div>
+      </section>
+
+      <!-- Right Section -->
+      <section class="signup-right">
+        <div class="signup-container">
+          <h2>Create your account</h2>
+          <p class="signup-description">
+            Start free. Verify your email to activate your account.
+          </p>
+
+          <button type="button" class="google-button">
+            <span>⊖</span> Continue with Google
+          </button>
+
+          <div class="signup-divider">
+            <span></span>
+            <p>or with email</p>
+            <span></span>
+          </div>
+
+          <form id="signupForm">
+            <label for="fullname">Full name</label>
+            <input type="text" id="fullname" placeholder="Your name" required />
+
+            <label for="signup-email">Email</label>
+            <input
+              type="email"
+              id="signup-email"
+              placeholder="you@example.com"
+              required
+            />
+
+            <label for="signup-password">Password</label>
+            <input
+              type="password"
+              id="signup-password"
+              placeholder="At least 8 characters"
+              minlength="8"
+              required
+            />
+
+            <div class="terms">
+              <input type="checkbox" id="terms" required />
+              <label for="terms">
+                I agree to the Terms and Privacy Policy.
+              </label>
+            </div>
+
+            <button type="submit" class="signup-button">Sign up free</button>
+          </form>
+
+          <p class="signin-text">
+            Already have an account?
+            <a href="login.html">Log in</a>
+          </p>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      const API_URL = "http://127.0.0.1:8000";
+
+      document
+        .getElementById("signupForm")
+        .addEventListener("submit", async (event) => {
+          event.preventDefault();
+
+          const full_name = document.getElementById("fullname").value;
+          const email = document.getElementById("signup-email").value;
+          const password = document.getElementById("signup-password").value;
+          const terms_accepted = document.getElementById("terms").checked;
+
+          try {
+            const response = await fetch(`${API_URL}/api/auth/signup`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                full_name,
+                email,
+                password,
+                terms_accepted,
+              }),
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+              alert(result.detail || "Sign-up failed");
+              return;
+            }
+
+            alert("Account created successfully! Please log in.");
+            window.location.href = "login.html";
+          } catch (error) {
+            alert("Cannot connect to the server. Check your backend.");
+          }
+        });
+    </script>
+  </body>
+</html>

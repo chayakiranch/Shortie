@@ -1,0 +1,245 @@
+@import url("https://googleapis.com");
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Inter", sans-serif;
+  background-color: #f5f6f2;
+}
+/* Navbar Styles */
+.main_Navbar {
+  width: 100%;
+  padding: 15px 5%;
+  background-color: #f5f6f2;
+}
+
+nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+.logo {
+  font-size: 25px;
+  font-weight: 800;
+  color: #10231e;
+}
+.Navbar {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  margin-left: auto;
+}
+
+.Navbar a {
+  color: #52605a;
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 400;
+  transition: color 0.2s ease;
+}
+
+.Navbar a:hover {
+  color: #0d8061;
+}
+
+.Login_Button {
+  margin-left: 28px;
+}
+
+.Login_Button button {
+  color: #17251f;
+  background: transparent;
+  border: none;
+  padding: 10px 0;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.Login_Button button:hover {
+  color: #0d8061;
+}
+
+.SignUp_Button {
+  margin-left: 28px;
+}
+
+.SignUp_Button button {
+  color: white;
+  background-color: #0d8061;
+  padding: 12px 18px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.SignUp_Button button:hover {
+  background-color: #09694f;
+}
+
+.SignUp_Button button:active {
+  transform: scale(0.97);
+}
+/* Hero Section Styles */
+.hero {
+  max-width: 1152px;
+  margin: 82px auto 0;
+}
+.hero h1 {
+  max-width: 740px;
+  margin-bottom: 26px;
+  font-size: 64px;
+  line-height: 1.09;
+  letter-spacing: -2.5px;
+  font-weight: 800;
+}
+.hero p {
+  font-size: 16px;
+  color: #56635d;
+}
+.shorten-form {
+  max-width: 820px;
+  min-height: 74px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #d9dfd7;
+  background: #ffffff;
+  border-radius: 13px;
+}
+
+.shorten-form input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  padding: 12px;
+  font-size: 15px;
+  font-family: inherit;
+  color: #253c34;
+}
+
+.shorten-form input::placeholder {
+  color: #77827d;
+}
+.shorten-form button {
+  color: white;
+  background-color: #0d8061;
+  padding: 12px 18px;
+  font-size: 12px;
+  font-weight: 600;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+.your-long-destination-url p {
+  font-size: 12px;
+  color: #56635d;
+}
+
+/* Features Section */
+.features-section,
+.pricing-section {
+  width: 100%;
+  padding: 0 3.35%;
+}
+
+.features-section {
+  margin-top: 90px;
+}
+
+.features-section h2,
+.pricing-section h2 {
+  color: #14231e;
+  font-size: 34px;
+  font-weight: 700;
+  margin-bottom: 28px;
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.feature-card,
+.pricing-card {
+  background-color: #ffffff;
+  border: 1px solid #d9dfd7;
+  border-radius: 13px;
+  box-shadow: none;
+}
+
+.feature-card {
+  min-height: 178px;
+}
+
+.feature-card .card-body {
+  padding: 24px;
+}
+
+.feature-card .card-title {
+  color: #14231e;
+  font-size: 19px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+.feature-card .card-text,
+.pricing-card .card-text {
+  color: #52605a;
+  font-size: 16px;
+  line-height: 1.5;
+  margin-bottom: 0;
+}
+
+/* Pricing Section */
+.pricing-section {
+  margin-top: 80px;
+  padding-bottom: 70px;
+}
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.pricing-card {
+  min-height: 204px;
+}
+
+.pricing-card .card-body {
+  padding: 20px;
+}
+
+.pricing-card .card-title {
+  color: #14231e;
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 18px;
+}
+
+.pricing-card .card-text {
+  margin-bottom: 16px;
+}
+
+.plan-price {
+  color: #14231e;
+  font-size: 16px;
+  margin-bottom: 0;
+}
+
+.pro-card {
+  border: 1px solid #0c8062;
+}
