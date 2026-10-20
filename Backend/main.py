@@ -849,7 +849,7 @@ async def analytics_export(
 @app.get("/s/{code}")
 async def redirect_short_link(code: str, request: Request):
     link = await links.find_one({"code": code})
-
+    
     if not link or not link.get("active", True):
         raise HTTPException(404, "Short link not found or disabled")
 
@@ -857,9 +857,11 @@ async def redirect_short_link(code: str, request: Request):
     if expiry:
         if expiry.tzinfo is None:
             expiry = expiry.replace(tzinfo=timezone.utc)
+
+
         if expiry <= datetime.now(timezone.utc):
             raise HTTPException(410, "This short link has expired")
-
+    
     click_event = {
         "link_id": str(link["_id"]),
         "code": link["code"],
@@ -886,3 +888,4 @@ async def redirect_short_link(code: str, request: Request):
         url=link["original_url"],
         status_code=307,
     )
+  
