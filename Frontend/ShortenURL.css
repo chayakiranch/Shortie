@@ -185,7 +185,7 @@ button:disabled {
 
 .form-card {
   width: 100%;
-  max-width: 878px;
+  max-width: 1120px;
   padding: 28px;
   margin-bottom: 24px;
   background: #fff;
@@ -307,7 +307,7 @@ button:disabled {
 
 .result-card {
   width: 100%;
-  max-width: 878px;
+  max-width: 1120px;
   padding: 26px 28px;
   margin-bottom: 26px;
   border: 1px solid #0c8062;
@@ -619,4 +619,139 @@ button:disabled {
 
 .delete-button:hover {
   background: #fee4e2;
+}
+
+/* Bulk CSV import and refined page layout */
+.main-content {
+  padding: 34px clamp(22px, 3vw, 48px);
+}
+.page-heading,
+.form-card,
+.result-card,
+.recent-section {
+  max-width: 1120px;
+}
+.form-card,
+.result-card,
+.table-card {
+  box-shadow: 0 3px 14px rgba(16, 35, 30, 0.035);
+}
+.bulk-import-card h2 {
+  margin: 0 0 10px;
+  font-size: 20px;
+  letter-spacing: -0.35px;
+}
+.bulk-import-card .form-help {
+  line-height: 1.65;
+}
+.bulk-import-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+.bulk-import-actions input[type="file"] {
+  flex: 1 1 260px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #d9dfd7;
+  border-radius: 9px;
+  background: #fbfcfa;
+}
+.bulk-import-results {
+  margin-top: 12px;
+  overflow-wrap: anywhere;
+  color: #43524b;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.bulk-import-results ul {
+  margin: 8px 0 0;
+  padding-left: 20px;
+}
+.form-message.success {
+  color: #087653;
+}
+.form-message.error {
+  color: #b42318;
+}
+.links-table tbody tr:hover {
+  background: #fbfdfb;
+}
+@media (min-width: 1400px) {
+  .main-content {
+    padding-left: 52px;
+    padding-right: 52px;
+  }
+}
+@media (max-width: 650px) {
+  .main-content {
+    padding: 20px 14px;
+  }
+  .bulk-import-actions {
+    align-items: stretch;
+  }
+  .bulk-import-actions button {
+    width: 100%;
+  }
+}
+
+/* Styled CSV file upload */
+.bulk-import-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.bulk-import-actions input[type="file"] {
+  flex: 1 1 280px;
+  min-width: 0;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #d7dfda;
+  border-radius: 10px;
+  background: #f9fbf9;
+  color: #52635b;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.bulk-import-actions input[type="file"]::file-selector-button {
+  margin-right: 12px;
+  padding: 10px 16px;
+  border: 0;
+  border-radius: 7px;
+  background: #d9f2e8;
+  color: #087653;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.bulk-import-actions input[type="file"]::file-selector-button:hover {
+  background: #c3e9da;
+}
+
+.bulk-import-actions button {
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .bulk-import-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bulk-import-actions input[type="file"] {
+    flex: auto;
+  }
+
+  .bulk-import-actions button {
+    width: 100%;
+  }
 }

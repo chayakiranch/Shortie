@@ -13,9 +13,11 @@ from urllib.parse import urlparse
 import jwt
 from bson import ObjectId
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt.exceptions import InvalidTokenError
 from pwdlib import PasswordHash
@@ -129,6 +131,12 @@ class CreateLinkRequest(BaseModel):
     original_url: HttpUrl
     alias: str | None = Field(default=None, min_length=3, max_length=40)
     expiry_date: date | None = None
+    activation_date: date | None = None
+    password: str | None = Field(default=None, min_length=4, max_length=128)
+
+
+class VerifyLinkPasswordRequest(BaseModel):
+    password: str = Field(min_length=1, max_length=128)
 
 
 class UpdateLinkRequest(BaseModel):
@@ -214,6 +222,8 @@ def link_response(link: dict) -> dict:
         "expiry_date": link.get("expiry_date"),
         "active": link.get("active", True),
         "clicks": link.get("clicks", 0),
+        "activation_date": link.get("activation_date"),
+        "password_protected": bool(link.get("password_hash")),
     }
 
 
@@ -317,10 +327,11 @@ async def create_link(
     if urlparse(destination).scheme not in ("http", "https"):
         raise HTTPException(400, "Only HTTP and HTTPS URLs are allowed")
 
-    if data.expiry_date and data.expiry_date < datetime.now(
-        timezone.utc
-    ).date():
+    today = datetime.now(timezone.utc).date()
+    if data.expiry_date and data.expiry_date < today:
         raise HTTPException(400, "Expiry date cannot be in the past")
+    if data.activation_date and data.expiry_date and data.activation_date > data.expiry_date:
+        raise HTTPException(400, "Activation date cannot be after expiry date")
 
     if data.alias:
         if not re.fullmatch(r"[A-Za-z0-9_-]{3,40}", data.alias):
@@ -333,13 +344,12 @@ async def create_link(
         code = generate_code()
 
     expiry = (
-        datetime.combine(
-            data.expiry_date,
-            time.max,
-            tzinfo=timezone.utc,
-        )
-        if data.expiry_date
-        else None
+        datetime.combine(data.expiry_date, time.max, tzinfo=timezone.utc)
+        if data.expiry_date else None
+    )
+    activation = (
+        datetime.combine(data.activation_date, time.min, tzinfo=timezone.utc)
+        if data.activation_date else None
     )
 
     for attempt in range(5):
@@ -349,6 +359,8 @@ async def create_link(
             "owner_id": user["id"],
             "created_at": datetime.now(timezone.utc),
             "expiry_date": expiry,
+            "activation_date": activation,
+            "password_hash": password_hash.hash(data.password) if data.password else None,
             "active": True,
             "clicks": 0,
         }
@@ -365,6 +377,86 @@ async def create_link(
                     503, "Could not generate a unique code. Please retry."
                 )
             code = generate_code()
+
+
+@app.post("/api/links/bulk-import")
+async def bulk_import_links(
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+):
+    """Create up to 200 links from a CSV file."""
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        raise HTTPException(400, "Upload a .csv file")
+
+    content = await file.read(1_000_001)
+    await file.close()
+    if len(content) > 1_000_000:
+        raise HTTPException(413, "CSV file must be 1 MB or smaller")
+    if not content.strip():
+        raise HTTPException(400, "The CSV file is empty")
+
+    try:
+        reader = csv.DictReader(io.StringIO(content.decode("utf-8-sig")))
+    except UnicodeDecodeError:
+        raise HTTPException(400, "CSV must be a valid UTF-8 file")
+    if not reader.fieldnames:
+        raise HTTPException(400, "CSV must have a header row")
+    reader.fieldnames = [name.strip().lower() if name else "" for name in reader.fieldnames]
+    if "original_url" not in reader.fieldnames:
+        raise HTTPException(400, "CSV must include an original_url column")
+
+    rows = list(reader)
+    if not rows:
+        raise HTTPException(400, "CSV contains no data rows")
+    if len(rows) > 200:
+        raise HTTPException(400, "CSV can contain at most 200 data rows")
+
+    results = []
+    created_count = 0
+    for row_number, raw in enumerate(rows, start=2):
+        row = {str(k).strip().lower(): (v or "").strip() for k, v in raw.items() if k}
+        try:
+            destination = row.get("original_url", "")
+            if not destination:
+                raise ValueError("original_url is required")
+            parsed = urlparse(destination)
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                raise ValueError("URL must begin with http:// or https://")
+            alias = row.get("alias", "")
+            if alias and not re.fullmatch(r"[A-Za-z0-9_-]{3,40}", alias):
+                raise ValueError("Alias must be 3–40 letters, numbers, hyphens or underscores")
+            expiry = None
+            if row.get("expiry_date"):
+                try:
+                    expiry_day = date.fromisoformat(row["expiry_date"])
+                except ValueError:
+                    raise ValueError("expiry_date must use YYYY-MM-DD format")
+                if expiry_day < datetime.now(timezone.utc).date():
+                    raise ValueError("expiry_date cannot be in the past")
+                expiry = datetime.combine(expiry_day, time.max, tzinfo=timezone.utc)
+            code = alias or generate_code()
+            document = {
+                "code": code, "original_url": destination, "owner_id": user["id"],
+                "created_at": datetime.now(timezone.utc), "expiry_date": expiry,
+                "activation_date": None, "password_hash": None, "active": True, "clicks": 0,
+            }
+            for attempt in range(5):
+                try:
+                    inserted = await links.insert_one(document)
+                    document["_id"] = inserted.inserted_id
+                    results.append({"row": row_number, "status": "created", "link": link_response(document)})
+                    created_count += 1
+                    break
+                except DuplicateKeyError:
+                    if alias:
+                        raise ValueError("Alias already exists")
+                    if attempt == 4:
+                        raise ValueError("Could not generate a unique short code; retry this row")
+                    code = generate_code()
+                    document["code"] = code
+        except ValueError as exc:
+            results.append({"row": row_number, "status": "error", "message": str(exc)})
+    return {"created": created_count, "failed": len(results) - created_count, "results": results}
 
 
 @app.get("/api/links")
@@ -844,12 +936,54 @@ async def analytics_export(
         },
     )
 
+@app.post("/api/links/{code}/verify-password")
+async def verify_link_password(
+    code: str, data: VerifyLinkPasswordRequest, request: Request
+):
+    link = await links.find_one({"code": code})
+    if not link or not link.get("active", True):
+        raise HTTPException(404, "Short link not found or disabled")
+
+    now = datetime.now(timezone.utc)
+    activation = link.get("activation_date")
+    if activation:
+        if activation.tzinfo is None:
+            activation = activation.replace(tzinfo=timezone.utc)
+        if activation > now:
+            raise HTTPException(403, "This link is not active yet")
+    expiry = link.get("expiry_date")
+    if expiry:
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+        if expiry <= now:
+            raise HTTPException(410, "This short link has expired")
+
+    stored_hash = link.get("password_hash")
+    if not stored_hash:
+        raise HTTPException(400, "This link does not require a password")
+    if not password_hash.verify(data.password, stored_hash):
+        raise HTTPException(401, "Incorrect password. Try again.")
+
+    click_event = {
+        "link_id": str(link["_id"]), "code": link["code"],
+        "owner_id": link["owner_id"], "clicked_at": now,
+        "referrer": request.headers.get("referer"),
+        "user_agent": request.headers.get("user-agent"),
+    }
+    try:
+        await click_events.insert_one(click_event)
+        await links.update_one({"_id": link["_id"]}, {"$inc": {"clicks": 1}})
+    except Exception:
+        logger.exception("Failed to record protected link click for %s", code)
+    return {"destination_url": link["original_url"]}
+
+
 # Redirect and click tracking
 
 @app.get("/s/{code}")
 async def redirect_short_link(code: str, request: Request):
     link = await links.find_one({"code": code})
-    
+
     if not link or not link.get("active", True):
         raise HTTPException(404, "Short link not found or disabled")
 
@@ -857,11 +991,24 @@ async def redirect_short_link(code: str, request: Request):
     if expiry:
         if expiry.tzinfo is None:
             expiry = expiry.replace(tzinfo=timezone.utc)
-
-
         if expiry <= datetime.now(timezone.utc):
             raise HTTPException(410, "This short link has expired")
-    
+
+    activation = link.get("activation_date")
+    if activation:
+        if activation.tzinfo is None:
+            activation = activation.replace(tzinfo=timezone.utc)
+        if activation > datetime.now(timezone.utc):
+            raise HTTPException(403, "This link is not active yet")
+
+    if link.get("password_hash"):
+        # Serve the visitor page from this FastAPI app, so the route works
+        # even when the frontend is not running in a separate Live Server.
+        return RedirectResponse(
+            url=f"/ProtectedLink.html?code={code}",
+            status_code=307,
+        )
+
     click_event = {
         "link_id": str(link["_id"]),
         "code": link["code"],
@@ -889,3 +1036,11 @@ async def redirect_short_link(code: str, request: Request):
         status_code=307,
     )
   
+
+# Serve the frontend files from FastAPI as well. This makes
+# /ProtectedLink.html and its CSS available on the same host as /s/{code}.
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "Frontend"
+if FRONTEND_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
+else:
+    logger.warning("Frontend directory not found at %s; static frontend serving is disabled", FRONTEND_DIR)

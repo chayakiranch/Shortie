@@ -1,0 +1,172 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #f5f4f0;
+  color: #172721;
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+.topbar {
+  height: 76px;
+  padding: 25px 40px;
+}
+
+.brand {
+  color: #172721;
+  text-decoration: none;
+  font-size: 22px;
+  font-weight: 750;
+  letter-spacing: -0.5px;
+}
+
+.page {
+  min-height: calc(100vh - 76px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 24px;
+}
+
+.protected-card {
+  width: 100%;
+  max-width: 440px;
+  padding: 32px;
+  background: #fff;
+  border: 1px solid #dedfdb;
+  border-radius: 17px;
+}
+
+.lock-icon {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #d8f2e7;
+  color: #006747;
+  border-radius: 12px;
+  margin-bottom: 18px;
+}
+
+.lock-icon svg {
+  width: 25px;
+  height: 25px;
+}
+
+h1 {
+  margin: 0 0 10px;
+  font-size: 27px;
+  line-height: 1.25;
+  letter-spacing: -0.6px;
+}
+
+.description {
+  margin: 0 0 26px;
+  color: #596760;
+  font-size: 14px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+label {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+input[type="password"] {
+  display: block;
+  width: 100%;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid #cfd5d0;
+  border-radius: 9px;
+  outline: none;
+  font: inherit;
+  background: #fff;
+}
+
+input[type="password"]:focus {
+  border-color: #0c805f;
+  box-shadow: 0 0 0 3px rgb(12 128 95 / 12%);
+}
+
+input[type="password"].invalid {
+  border-color: #ef2929;
+}
+
+.error-message {
+  margin: 8px 0 18px;
+  min-height: 0;
+  color: #e32323;
+  font-size: 12px;
+}
+
+.error-message:empty {
+  display: none;
+}
+
+button {
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  border-radius: 9px;
+  background: #0d805f;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #096d50;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.footer-note {
+  margin: 22px 0 0;
+  color: #68746e;
+  font-size: 12px;
+  text-align: center;
+}
+
+.footer-note a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.footer-note a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 520px) {
+  .topbar {
+    padding: 23px 22px;
+  }
+
+  .page {
+    padding: 18px;
+  }
+
+  .protected-card {
+    padding: 26px 22px;
+  }
+
+  h1 {
+    font-size: 24px;
+  }
+}

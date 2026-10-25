@@ -84,6 +84,22 @@
               </div>
             </div>
 
+            <div class="form-group">
+              <label for="linkPassword">Password protection (optional)</label>
+              <input
+                type="password"
+                id="linkPassword"
+                placeholder="Set a password for this link"
+                minlength="4"
+                maxlength="128"
+                autocomplete="new-password"
+              />
+              <small class="form-help">
+                Leave blank for a public link. Visitors must enter this password
+                before opening a protected link.
+              </small>
+            </div>
+
             <p class="form-help">
               Leave the alias empty to generate a unique code. Custom aliases
               must be unique.
@@ -100,6 +116,70 @@
               aria-live="polite"
             ></p>
           </form>
+        </section>
+
+        <section class="result-card" id="resultCard" hidden>
+          <span class="result-badge">Saved to your account</span>
+
+          <div class="result-main">
+            <div class="result-info">
+              <h2 id="shortUrlText"></h2>
+              <p class="destination-label">Destination URL</p>
+
+              <div id="resultDestination"></div>
+            </div>
+
+            <div class="result-actions">
+              <button
+                class="primary-button"
+                type="button"
+                id="copyResultButton"
+              >
+                Copy link
+              </button>
+
+              <button class="secondary-button" type="button" id="showQrButton">
+                Show QR
+              </button>
+            </div>
+          </div>
+
+          <div class="qr-container" id="qrContainer" hidden>
+            <img id="qrImage" alt="QR code for the short URL" />
+          </div>
+        </section>
+
+        <section class="form-card bulk-import-card">
+          <h2>Bulk import links</h2>
+          <p class="form-help">
+            Upload a CSV with an <code>original_url</code> column and optional
+            <code>alias</code> and <code>expiry_date</code> columns
+            (YYYY-MM-DD). Up to 200 rows per upload.
+          </p>
+          <div class="bulk-import-actions">
+            <input type="file" id="bulkCsvFile" accept=".csv,text/csv" />
+            <button class="primary-button" type="button" id="bulkImportButton">
+              Import CSV
+            </button>
+            <button
+              class="secondary-button"
+              type="button"
+              id="downloadCsvTemplate"
+            >
+              Download CSV template
+            </button>
+          </div>
+          <p
+            id="bulkImportMessage"
+            class="form-message"
+            role="status"
+            aria-live="polite"
+          ></p>
+          <div
+            id="bulkImportResults"
+            class="bulk-import-results"
+            aria-live="polite"
+          ></div>
         </section>
 
         <section class="result-card" id="resultCard" hidden>
@@ -487,6 +567,7 @@
         const originalUrl = urlInput.value.trim();
         const alias = aliasInput.value.trim();
         const expiryDate = expiryInput.value;
+        const password = $("linkPassword").value;
 
         if (!validHttpUrl(originalUrl)) {
           showMessage("Enter a valid URL beginning with http:// or https://");
@@ -505,6 +586,11 @@
           return;
         }
 
+        if (password && (password.length < 4 || password.length > 128)) {
+          showMessage("Password must be between 4 and 128 characters.");
+          return;
+        }
+
         const button = $("shortenButton");
         button.disabled = true;
         button.textContent = "Creating...";
@@ -512,6 +598,7 @@
         try {
           const payload = {
             original_url: originalUrl,
+            password: password || null,
           };
 
           if (alias) payload.alias = alias;
@@ -533,7 +620,12 @@
           resultCard.hidden = false;
           $("qrContainer").hidden = true;
 
-          showMessage("Short link created and saved successfully.", "success");
+          showMessage(
+            password
+              ? "Password-protected short link created successfully."
+              : "Short link created and saved successfully.",
+            "success",
+          );
 
           form.reset();
 
@@ -548,6 +640,84 @@
         } finally {
           button.disabled = false;
           button.textContent = "Shorten URL";
+        }
+      });
+
+      $("downloadCsvTemplate").addEventListener("click", () => {
+        const csv =
+          "original_url,alias,expiry_date\nhttps://example.com,my-example,\nhttps://chaya-kiran-portfolio.vercel.app/\n";
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "shortie-links-template.csv";
+        link.click();
+        URL.revokeObjectURL(url);
+      });
+
+      $("bulkImportButton").addEventListener("click", async () => {
+        const file = $("bulkCsvFile").files[0];
+        const message = $("bulkImportMessage");
+        const results = $("bulkImportResults");
+        results.replaceChildren();
+        message.className = "form-message";
+        if (!file) {
+          message.textContent = "Choose a CSV file first.";
+          message.classList.add("error");
+          return;
+        }
+        if (!file.name.toLowerCase().endsWith(".csv")) {
+          message.textContent = "Please choose a .csv file.";
+          message.classList.add("error");
+          return;
+        }
+
+        const button = $("bulkImportButton");
+        button.disabled = true;
+        button.textContent = "Importing...";
+        try {
+          const response = await fetch(`${API_URL}/api/links/bulk-import`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+            body: (() => {
+              const formData = new FormData();
+              formData.append("file", file);
+              return formData;
+            })(),
+          });
+          if (response.status === 401 || response.status === 403) {
+            sessionStorage.removeItem("shortie_token");
+            window.location.replace("login.html");
+            throw new Error("Your session has expired. Please log in again.");
+          }
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(
+              typeof data.detail === "string"
+                ? data.detail
+                : "CSV import failed.",
+            );
+          }
+          message.textContent = `Import complete: ${data.created} created, ${data.failed} failed.`;
+          message.classList.add(data.failed ? "error" : "success");
+          const list = document.createElement("ul");
+          data.results.forEach((item) => {
+            const li = document.createElement("li");
+            if (item.status === "created") {
+              li.textContent = `Row ${item.row}: created ${item.link.short_url}`;
+            } else {
+              li.textContent = `Row ${item.row}: ${item.message}`;
+            }
+            list.appendChild(li);
+          });
+          results.appendChild(list);
+          await loadRecentLinks();
+        } catch (error) {
+          message.textContent = error.message;
+          message.classList.add("error");
+        } finally {
+          button.disabled = false;
+          button.textContent = "Import CSV";
         }
       });
 

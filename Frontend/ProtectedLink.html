@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Protected Link | Shortie</title>
+    <link rel="stylesheet" href="ProtectedLink.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a href="index.html" class="brand">Shortie</a>
+    </header>
+
+    <main class="page">
+      <section class="protected-card">
+        <div class="lock-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none">
+            <rect
+              x="4.5"
+              y="10"
+              width="15"
+              height="11"
+              rx="2"
+              stroke="currentColor"
+              stroke-width="1.8"
+            />
+            <path
+              d="M8 10V7a4 4 0 0 1 8 0v3"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            />
+          </svg>
+        </div>
+
+        <h1>This link is protected</h1>
+        <p class="description">
+          Enter the password to continue to
+          <span id="destinationLabel">this destination</span>.<br />
+          The owner of this link set the password.
+        </p>
+
+        <form id="passwordForm">
+          <label for="password">Password</label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            autocomplete="current-password"
+            required
+            minlength="4"
+            maxlength="128"
+            autofocus
+          />
+
+          <p id="errorMessage" class="error-message" role="alert"></p>
+
+          <button type="submit" id="continueButton">Continue</button>
+        </form>
+
+        <p class="footer-note">
+          Attempts are rate limited.
+          <a href="#" id="reportLink">Report abuse</a>
+        </p>
+      </section>
+    </main>
+
+    <script>
+      const passwordForm = document.getElementById("passwordForm");
+      const passwordInput = document.getElementById("password");
+      const errorMessage = document.getElementById("errorMessage");
+      const continueButton = document.getElementById("continueButton");
+
+      // Backend address
+      const API_URL = "http://127.0.0.1:8000";
+
+      // Short code comes from ProtectedLink.html?code=abc123
+      const params = new URLSearchParams(window.location.search);
+      const shortCode = params.get("code");
+
+      passwordForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+
+        errorMessage.textContent = "";
+        passwordInput.classList.remove("invalid");
+
+        if (!shortCode) {
+          errorMessage.textContent = "This protected link is invalid.";
+          return;
+        }
+
+        continueButton.disabled = true;
+        continueButton.textContent = "Checking...";
+
+        try {
+          const response = await fetch(
+            `${API_URL}/api/links/${encodeURIComponent(shortCode)}/verify-password`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                password: passwordInput.value,
+              }),
+            },
+          );
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            if (response.status === 401) {
+              errorMessage.textContent = "Incorrect password. Try again.";
+              passwordInput.classList.add("invalid");
+              passwordInput.focus();
+            } else if (response.status === 410) {
+              errorMessage.textContent = "This short link has expired.";
+            } else if (response.status === 429) {
+              errorMessage.textContent =
+                "Too many attempts. Please try again later.";
+            } else {
+              errorMessage.textContent =
+                data.detail || "Unable to verify this password.";
+            }
+
+            return;
+          }
+
+          if (!data.destination_url) {
+            errorMessage.textContent = "The destination URL is missing.";
+            return;
+          }
+
+          // Only redirect after the backend confirms the password.
+          window.location.assign(data.destination_url);
+        } catch (error) {
+          errorMessage.textContent =
+            "Cannot connect to Shortie. Check that the backend is running.";
+        } finally {
+          continueButton.disabled = false;
+          continueButton.textContent = "Continue";
+        }
+      });
+
+      document
+        .getElementById("reportLink")
+        .addEventListener("click", (event) => {
+          event.preventDefault();
+          errorMessage.textContent =
+            "Please contact the Shortie administrator to report abuse.";
+        });
+    </script>
+  </body>
+</html>
