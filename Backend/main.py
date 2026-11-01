@@ -4,6 +4,8 @@ import re
 import secrets
 import string
 import logging
+import hashlib
+import hmac
 from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta, timezone
@@ -15,7 +17,7 @@ from bson import ObjectId
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -54,6 +56,7 @@ users = db["users"]
 links = db["links"]
 qr_codes = db["qr_codes"]
 click_events = db["click_events"]
+domains = db["domains"]
 
 password_hash = PasswordHash.recommended()
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -64,6 +67,7 @@ async def lifespan(app: FastAPI):
     await client.admin.command("ping")
 
     await users.create_index("email", unique=True)
+    await domains.create_index([("owner_id", 1), ("domain", 1)], unique=True)
     await links.create_index("code", unique=True)
     await links.create_index([("owner_id", 1), ("created_at", -1)])
 
@@ -127,6 +131,15 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class UpdateProfileRequest(BaseModel):
+    full_name: str = Field(min_length=2, max_length=100)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
 class CreateLinkRequest(BaseModel):
     original_url: HttpUrl
     alias: str | None = Field(default=None, min_length=3, max_length=40)
@@ -155,6 +168,37 @@ class SaveQRCodeRequest(BaseModel):
     foreground: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
     background: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
     logo: str | None = Field(default=None, max_length=3_000_000)
+
+
+# Privacy-conscious visitor tracking. A random first-party cookie is stored
+# in the visitor browser; only an HMAC of its value is saved in click_events.
+VISITOR_COOKIE_NAME = "shortie_visitor"
+VISITOR_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
+
+def visitor_fingerprint(request: Request) -> tuple[str, str, bool]:
+    cookie_value = request.cookies.get(VISITOR_COOKIE_NAME)
+    is_new = not cookie_value
+    if not cookie_value:
+        cookie_value = secrets.token_urlsafe(32)
+    fingerprint = hmac.new(
+        JWT_SECRET.encode("utf-8"),
+        cookie_value.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return cookie_value, fingerprint, is_new
+
+def set_visitor_cookie(response, cookie_value: str, is_new: bool):
+    if is_new:
+        response.set_cookie(
+            key=VISITOR_COOKIE_NAME,
+            value=cookie_value,
+            max_age=VISITOR_COOKIE_MAX_AGE,
+            httponly=True,
+            secure=False,  # Set True when deployed exclusively over HTTPS.
+            samesite="lax",
+            path="/",
+        )
+    return response
 
 
 # Authentication helpers
@@ -313,6 +357,31 @@ async def login(data: LoginRequest):
 @app.get("/api/auth/me")
 async def current_user(user: dict = Depends(get_current_user)):
     return {"user": user}
+
+
+@app.patch("/api/settings/profile")
+async def update_profile(data: UpdateProfileRequest, user: dict = Depends(get_current_user)):
+    full_name = data.full_name.strip()
+    if len(full_name) < 2:
+        raise HTTPException(400, "Enter a valid name")
+    result = await users.update_one({"_id": ObjectId(user["id"])}, {"$set": {"full_name": full_name}})
+    if result.matched_count != 1:
+        raise HTTPException(404, "Account not found")
+    updated = await users.find_one({"_id": ObjectId(user["id"])})
+    return {"message": "Profile updated successfully", "user": safe_user(updated)}
+
+
+@app.patch("/api/settings/password")
+async def change_password(data: ChangePasswordRequest, user: dict = Depends(get_current_user)):
+    account = await users.find_one({"_id": ObjectId(user["id"])})
+    if not account:
+        raise HTTPException(404, "Account not found")
+    if not password_hash.verify(data.current_password, account["password_hash"]):
+        raise HTTPException(400, "Current password is incorrect")
+    if password_hash.verify(data.new_password, account["password_hash"]):
+        raise HTTPException(400, "New password must be different from the current password")
+    await users.update_one({"_id": ObjectId(user["id"])}, {"$set": {"password_hash": password_hash.hash(data.new_password)}})
+    return {"message": "Password changed successfully"}
 
 
 # URL shortening and link management
@@ -964,9 +1033,11 @@ async def verify_link_password(
     if not password_hash.verify(data.password, stored_hash):
         raise HTTPException(401, "Incorrect password. Try again.")
 
+    cookie_value, visitor_id, is_new_visitor = visitor_fingerprint(request)
     click_event = {
         "link_id": str(link["_id"]), "code": link["code"],
         "owner_id": link["owner_id"], "clicked_at": now,
+        "visitor_id": visitor_id,
         "referrer": request.headers.get("referer"),
         "user_agent": request.headers.get("user-agent"),
     }
@@ -975,7 +1046,21 @@ async def verify_link_password(
         await links.update_one({"_id": link["_id"]}, {"$inc": {"clicks": 1}})
     except Exception:
         logger.exception("Failed to record protected link click for %s", code)
-    return {"destination_url": link["original_url"]}
+    response = JSONResponse({"destination_url": link["original_url"]})
+    return set_visitor_cookie(response, cookie_value, is_new_visitor)
+
+
+# Dashboard metric: distinct tracked visitors for the signed-in owner's links.
+@app.get("/api/analytics/unique-visitors")
+async def unique_visitors(user: dict = Depends(get_current_user)):
+    pipeline = [
+        {"$match": {"owner_id": user["id"], "visitor_id": {"$exists": True, "$ne": None}}},
+        {"$group": {"_id": "$visitor_id"}},
+        {"$count": "total"},
+    ]
+    cursor = await click_events.aggregate(pipeline)
+    result = await cursor.to_list(length=1)
+    return {"unique_visitors": result[0]["total"] if result else 0}
 
 
 # Redirect and click tracking
@@ -1009,11 +1094,13 @@ async def redirect_short_link(code: str, request: Request):
             status_code=307,
         )
 
+    cookie_value, visitor_id, is_new_visitor = visitor_fingerprint(request)
     click_event = {
         "link_id": str(link["_id"]),
         "code": link["code"],
         "owner_id": link["owner_id"],
         "clicked_at": datetime.now(timezone.utc),
+        "visitor_id": visitor_id,
         "referrer": request.headers.get("referer"),
         "user_agent": request.headers.get("user-agent"),
     }
@@ -1031,14 +1118,136 @@ async def redirect_short_link(code: str, request: Request):
     except Exception:
         logger.exception("Failed to increment click counter for %s", code)
 
-    return RedirectResponse(
+    response = RedirectResponse(
         url=link["original_url"],
         status_code=307,
     )
+    return set_visitor_cookie(response, cookie_value, is_new_visitor)
   
 
-# Serve the frontend files from FastAPI as well. This makes
-# /ProtectedLink.html and its CSS available on the same host as /s/{code}.
+
+# Custom domain management. DNS ownership verification is real; routing a domain
+# to this server still requires DNS and deployment/proxy configuration.
+class DomainCreateRequest(BaseModel):
+    domain: str = Field(min_length=3, max_length=253)
+
+
+def normalize_domain(value: str) -> str:
+    value = value.strip().lower().rstrip(".")
+    if value.startswith("http://") or value.startswith("https://"):
+        parsed = urlparse(value)
+        if parsed.path not in ("", "/") or parsed.query or parsed.fragment:
+            raise HTTPException(400, "Enter a domain only, without a path")
+        value = parsed.hostname or ""
+    if not value or len(value) > 253 or "." not in value:
+        raise HTTPException(400, "Enter a valid domain name, such as links.example.com")
+    if value == "localhost" or re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", value):
+        raise HTTPException(400, "Use a public domain name, not localhost or an IP address")
+    labels = value.split(".")
+    if any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", x) for x in labels):
+        raise HTTPException(400, "Domain name contains invalid characters")
+    return value
+
+
+def serialize_domain(doc: dict) -> dict:
+    return {
+        "id": str(doc["_id"]), "domain": doc["domain"],
+        "status": doc.get("status", "pending"),
+        "verification_token": doc["verification_token"],
+        "is_default": bool(doc.get("is_default", False)),
+        "created_at": doc["created_at"].isoformat(),
+        "verified_at": doc.get("verified_at").isoformat() if doc.get("verified_at") else None,
+        "dns_target": SHORTIE_BASE_URL.replace("https://", "").replace("http://", "").split("/")[0],
+    }
+
+
+@app.get("/api/domains")
+async def list_domains(user: dict = Depends(get_current_user)):
+    cursor = domains.find({"owner_id": user["id"]}).sort("created_at", -1)
+    return {"domains": [serialize_domain(d) async for d in cursor]}
+
+
+async def _create_domain_record(data: DomainCreateRequest, user: dict):
+    domain = normalize_domain(data.domain)
+    existing = await domains.find_one({"owner_id": user["id"], "domain": domain})
+    if existing:
+        raise HTTPException(409, "This domain has already been added to your account")
+    doc = {
+        "owner_id": user["id"],
+        "domain": domain,
+        "status": "pending",
+        "verification_token": "shortie-verify=" + secrets.token_urlsafe(24),
+        "is_default": False,
+        "created_at": datetime.now(timezone.utc),
+        "verified_at": None,
+    }
+    result = await domains.insert_one(doc)
+    doc["_id"] = result.inserted_id
+    return {
+        "domain": serialize_domain(doc),
+        "message": "Domain added. Add the requested DNS record, then verify ownership.",
+    }
+
+
+@app.post("/api/domains/create", status_code=201)
+async def create_domain(data: DomainCreateRequest, user: dict = Depends(get_current_user)):
+    return await _create_domain_record(data, user)
+
+
+@app.post("/api/domains", status_code=201, include_in_schema=False)
+async def create_domain_compat(data: DomainCreateRequest, user: dict = Depends(get_current_user)):
+    return await _create_domain_record(data, user)
+
+
+@app.post("/api/domains/{domain_id}/verify")
+async def verify_domain(domain_id: str, user: dict = Depends(get_current_user)):
+    if not ObjectId.is_valid(domain_id):
+        raise HTTPException(404, "Domain not found")
+    doc = await domains.find_one({"_id": ObjectId(domain_id), "owner_id": user["id"]})
+    if not doc:
+        raise HTTPException(404, "Domain not found")
+    try:
+        import dns.resolver
+        answers = dns.resolver.resolve("_shortie." + doc["domain"], "TXT", lifetime=5)
+        records = [part.decode() if isinstance(part, bytes) else str(part) for answer in answers for part in answer.strings]
+    except ImportError:
+        raise HTTPException(503, "DNS verification needs dnspython. Install it with: pip install dnspython")
+    except Exception:
+        records = []
+    if doc["verification_token"] not in records:
+        raise HTTPException(400, "Verification TXT record not found yet. Check your DNS settings and try again.")
+    now = datetime.now(timezone.utc)
+    await domains.update_one({"_id": doc["_id"]}, {"$set": {"status": "verified", "verified_at": now}})
+    doc["status"] = "verified"; doc["verified_at"] = now
+    return {"domain": serialize_domain(doc), "message": "Domain ownership verified."}
+
+
+@app.post("/api/domains/{domain_id}/default")
+async def set_default_domain(domain_id: str, user: dict = Depends(get_current_user)):
+    if not ObjectId.is_valid(domain_id):
+        raise HTTPException(404, "Domain not found")
+    doc = await domains.find_one({"_id": ObjectId(domain_id), "owner_id": user["id"]})
+    if not doc:
+        raise HTTPException(404, "Domain not found")
+    if doc.get("status") != "verified":
+        raise HTTPException(400, "Verify this domain before setting it as default")
+    await domains.update_many({"owner_id": user["id"]}, {"$set": {"is_default": False}})
+    await domains.update_one({"_id": doc["_id"]}, {"$set": {"is_default": True}})
+    return {"message": "Default domain updated."}
+
+
+@app.delete("/api/domains/{domain_id}")
+async def delete_domain(domain_id: str, user: dict = Depends(get_current_user)):
+    if not ObjectId.is_valid(domain_id):
+        raise HTTPException(404, "Domain not found")
+    result = await domains.delete_one({"_id": ObjectId(domain_id), "owner_id": user["id"]})
+    if not result.deleted_count:
+        raise HTTPException(404, "Domain not found")
+    return {"message": "Domain removed."}
+
+
+# IMPORTANT: mount the frontend only AFTER registering all API routes.
+# A root StaticFiles mount placed earlier intercepts API POST requests and returns 405.
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "Frontend"
 if FRONTEND_DIR.is_dir():
     app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")

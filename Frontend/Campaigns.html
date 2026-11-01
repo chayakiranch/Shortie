@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Campaigns | Shortie</title>
+    <link rel="stylesheet" href="Campaigns.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <h2>Shortie</h2>
+      <nav>
+        <a href="Dashboard.html">Links</a>
+        <a href="ShortenURL.html">Shorten URL</a>
+        <a href="Analytics.html">Analytics</a>
+        <a class="active" href="Campaigns.html">Campaigns</a>
+        <a href="QRcodes.html">QR codes</a>
+        <a href="Domains.html">Domains</a>
+        <a href="APIkeys.html">API keys</a>
+        <a href="Settings.html">Settings</a>
+      </nav>
+      <div class="profile">
+        <div class="avatar" id="avatar">U</div>
+        <div>
+          <strong id="user-name">Your account</strong
+          ><small id="user-email"></small>
+        </div>
+        <button id="logout" class="btn outline full">Log out</button>
+      </div>
+    </aside>
+    <main class="main">
+      <header class="page-head">
+        <div>
+          <h1>Campaigns</h1>
+          <p>Group your short links and compare campaign performance.</p>
+        </div>
+        <button id="new-campaign" class="btn primary">New campaign</button>
+      </header>
+      <div id="notice" class="notice" hidden></div>
+      <section class="stats">
+        <article class="card stat">
+          <span>Active campaigns</span><strong id="active-count">—</strong>
+        </article>
+        <article class="card stat">
+          <span>Campaign clicks</span><strong id="total-clicks">—</strong>
+        </article>
+        <article class="card stat">
+          <span>Linked short URLs</span><strong id="total-links">—</strong>
+        </article>
+      </section>
+      <section class="card table-card">
+        <div class="section-head">
+          <div>
+            <h2>Your campaigns</h2>
+            <p>Only campaigns saved to your account are shown.</p>
+          </div>
+          <div class="tools">
+            <input
+              id="search"
+              type="search"
+              placeholder="Search campaigns"
+              aria-label="Search campaigns"
+            /><button id="refresh" class="btn outline">Refresh</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Campaign</th>
+                <th>Channel</th>
+                <th>Links</th>
+                <th>Clicks</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="campaign-rows">
+              <tr>
+                <td colspan="6" class="empty">Loading campaigns…</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="empty-state" class="empty-state" hidden>
+          <h3>No campaigns yet</h3>
+          <p>
+            Create a campaign to group your existing short links and track their
+            combined clicks.
+          </p>
+          <button class="btn primary" id="empty-create">
+            Create your first campaign
+          </button>
+        </div>
+      </section>
+      <section class="card form-card" id="campaign-form-card" hidden>
+        <div class="section-head">
+          <div>
+            <h2 id="form-title">New campaign</h2>
+            <p>
+              Choose a name and optionally associate existing Shortie links.
+            </p>
+          </div>
+          <button id="close-form" class="btn outline">Close</button>
+        </div>
+        <form id="campaign-form">
+          <input type="hidden" id="campaign-id" />
+          <div class="form-grid">
+            <label
+              >Campaign name<input
+                id="name"
+                maxlength="100"
+                required
+                placeholder="e.g. Diwali promotion" /></label
+            ><label
+              >Channel<select id="channel">
+                <option>Other</option>
+                <option>Social</option>
+                <option>Email</option>
+                <option>Newsletter</option>
+                <option>QR scan</option>
+                <option>Website</option>
+                <option>Paid ads</option>
+                <option>Print</option>
+              </select></label
+            ><label
+              >Status<select id="status">
+                <option value="active">Active</option>
+                <option value="paused">Paused</option>
+                <option value="archived">Archived</option>
+              </select></label
+            ><label class="wide"
+              >Description<textarea
+                id="description"
+                maxlength="500"
+                rows="3"
+                placeholder="What is this campaign for?"
+              ></textarea>
+            </label>
+            <fieldset class="wide link-picker">
+              <legend>
+                Associate existing short links
+                <span class="optional">(optional)</span>
+              </legend>
+              <div class="link-picker-toolbar">
+                <p>
+                  Select the links that belong to this campaign. Long URLs are
+                  shortened for readability.
+                </p>
+                <input
+                  id="link-search"
+                  type="search"
+                  placeholder="Search short links or destinations"
+                  aria-label="Search existing short links"
+                /><span class="selected-count" id="selected-count"
+                  >0 selected</span
+                >
+              </div>
+              <div id="link-options" class="link-options">
+                <p class="links-loading">Loading your links…</p>
+              </div>
+              <div class="link-picker-footer">
+                <span id="link-total">0 links available</span
+                ><button
+                  type="button"
+                  class="btn outline small"
+                  id="clear-links"
+                >
+                  Clear selection
+                </button>
+              </div>
+            </fieldset>
+          </div>
+          <div class="form-actions">
+            <button type="button" id="cancel-form" class="btn outline">
+              Cancel</button
+            ><button type="submit" id="save-campaign" class="btn primary">
+              Save campaign
+            </button>
+          </div>
+        </form>
+      </section>
+    </main>
+    <script>
+      (() => {
+        const API =
+          location.protocol === "file:"
+            ? "http://127.0.0.1:8000"
+            : `${location.protocol}//${location.hostname}:8000`;
+        const token = sessionStorage.getItem("shortie_token");
+        const $ = (id) => document.getElementById(id);
+        let campaigns = [],
+          links = [];
+        if (!token) {
+          location.href = "login.html";
+          return;
+        }
+        function notice(msg, type = "error") {
+          const n = $("notice");
+          n.textContent = msg;
+          n.className = "notice " + type;
+          n.hidden = false;
+        }
+        function clearNotice() {
+          $("notice").hidden = true;
+        }
+        async function api(path, options = {}) {
+          const res = await fetch(API + path, {
+            ...options,
+            headers: {
+              Authorization: `Bearer ${token}`,
+              ...(options.body ? { "Content-Type": "application/json" } : {}),
+              ...(options.headers || {}),
+            },
+          });
+          let data = {};
+          try {
+            data = await res.json();
+          } catch {}
+          if (res.status === 401) {
+            sessionStorage.removeItem("shortie_token");
+            location.href = "login.html";
+            throw new Error("Session expired. Please sign in again.");
+          }
+          if (!res.ok)
+            throw new Error(data.detail || `Request failed (${res.status})`);
+          return data;
+        }
+        const esc = (s) =>
+          String(s ?? "").replace(
+            /[&<>"']/g,
+            (c) =>
+              ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                '"': "&quot;",
+                "'": "&#39;",
+              })[c],
+          );
+        function render() {
+          const q = $("search").value.trim().toLowerCase();
+          const list = campaigns.filter((c) =>
+            [c.name, c.channel, c.description, c.status].some((v) =>
+              String(v || "")
+                .toLowerCase()
+                .includes(q),
+            ),
+          );
+          $("active-count").textContent = campaigns
+            .filter((c) => c.status === "active")
+            .length.toLocaleString();
+          $("total-clicks").textContent = campaigns
+            .reduce((n, c) => n + (c.clicks || 0), 0)
+            .toLocaleString();
+          $("total-links").textContent = campaigns
+            .reduce((n, c) => n + (c.link_count || 0), 0)
+            .toLocaleString();
+          $("campaign-rows").innerHTML = list.length
+            ? list
+                .map(
+                  (c) =>
+                    `<tr><td><strong>${esc(c.name)}</strong><small>${esc(c.description || "No description")}</small></td><td>${esc(c.channel || "Other")}</td><td>${c.link_count || 0}</td><td>${(c.clicks || 0).toLocaleString()}</td><td><span class="badge ${esc(c.status)}">${esc(c.status)}</span></td><td class="actions"><button class="btn outline small" data-edit="${c.id}">Edit</button><button class="btn danger small" data-delete="${c.id}">Delete</button></td></tr>`,
+                )
+                .join("")
+            : `<tr><td colspan="6" class="empty">${q ? "No campaigns match your search." : "No campaigns have been created yet."}</td></tr>`;
+          $("empty-state").hidden = campaigns.length > 0 || q.length > 0;
+        }
+        async function load() {
+          clearNotice();
+          $("campaign-rows").innerHTML =
+            '<tr><td colspan="6" class="empty">Loading campaigns…</td></tr>';
+          try {
+            const [c, l] = await Promise.all([
+              api("/api/campaigns"),
+              api("/api/links"),
+            ]);
+            campaigns = c.campaigns || [];
+            links = l.links || [];
+            render();
+            renderLinkOptions();
+          } catch (e) {
+            notice(e.message);
+            $("campaign-rows").innerHTML =
+              '<tr><td colspan="6" class="empty">Could not load campaigns.</td></tr>';
+          }
+        }
+        function renderLinkOptions(selected = null) {
+          const box = $("link-options");
+          if (selected !== null) {
+            box.dataset.selected = JSON.stringify(selected);
+          }
+          const selectedIds = new Set(
+            JSON.parse(box.dataset.selected || "[]").map(String),
+          );
+          const q = ($("link-search")?.value || "").trim().toLowerCase();
+          const filtered = links.filter((l) =>
+            [l.short_url, l.code, l.original_url, l.destination_url].some((v) =>
+              String(v || "")
+                .toLowerCase()
+                .includes(q),
+            ),
+          );
+          $("link-total").textContent =
+            `${links.length} link${links.length === 1 ? "" : "s"} available`;
+          $("selected-count").textContent = `${selectedIds.size} selected`;
+          if (!links.length) {
+            box.innerHTML =
+              '<div class="links-empty"><strong>No saved short links yet</strong><span>Create a short link first, then return here to associate it with a campaign.</span></div>';
+            return;
+          }
+          if (!filtered.length) {
+            box.innerHTML =
+              '<div class="links-empty">No links match your search.</div>';
+            return;
+          }
+          box.innerHTML = filtered
+            .map((l) => {
+              const id = String(l.id ?? l._id ?? l.code ?? "");
+              const short = l.short_url || l.code || "Short link";
+              const original = l.original_url || l.destination_url || "";
+              return `<label class="link-option ${selectedIds.has(id) ? "is-selected" : ""}"><input type="checkbox" value="${esc(id)}" ${selectedIds.has(id) ? "checked" : ""}><span class="link-option-copy"><strong title="${esc(short)}">${esc(short)}</strong><small title="${esc(original)}">${esc(original || "No destination URL available")}</small></span><span class="link-checkmark" aria-hidden="true">✓</span></label>`;
+            })
+            .join("");
+        }
+        function openForm(c = null) {
+          $("campaign-form").reset();
+          $("link-search").value = "";
+          $("link-options").dataset.selected = JSON.stringify(
+            c?.link_ids || [],
+          );
+          $("campaign-id").value = c?.id || "";
+          $("form-title").textContent = c ? "Edit campaign" : "New campaign";
+          $("name").value = c?.name || "";
+          $("description").value = c?.description || "";
+          $("channel").value = c?.channel || "Other";
+          $("status").value = c?.status || "active";
+          renderLinkOptions(c?.link_ids || []);
+          $("campaign-form-card").hidden = false;
+          $("name").focus();
+        }
+        function closeForm() {
+          $("campaign-form-card").hidden = true;
+        }
+        $("link-options").addEventListener("change", (e) => {
+          if (!e.target.matches("input[type=checkbox]")) return;
+          const ids = [
+            ...$("link-options").querySelectorAll("input:checked"),
+          ].map((x) => x.value);
+          $("link-options").dataset.selected = JSON.stringify(ids);
+          renderLinkOptions();
+        });
+        $("link-search").addEventListener("input", () => renderLinkOptions());
+        $("clear-links").onclick = () => {
+          $("link-options").dataset.selected = "[]";
+          renderLinkOptions();
+        };
+        $("new-campaign").onclick = () => openForm();
+        $("empty-create").onclick = () => openForm();
+        $("close-form").onclick = closeForm;
+        $("cancel-form").onclick = closeForm;
+        $("refresh").onclick = load;
+        $("search").addEventListener("input", render);
+        $("campaign-rows").addEventListener("click", async (e) => {
+          const edit = e.target.closest("[data-edit]"),
+            del = e.target.closest("[data-delete]");
+          if (edit) {
+            const c = campaigns.find((x) => x.id === edit.dataset.edit);
+            if (c) openForm(c);
+          }
+          if (del) {
+            const c = campaigns.find((x) => x.id === del.dataset.delete);
+            if (
+              !c ||
+              !confirm(
+                `Delete campaign “${c.name}”? The short links themselves will not be deleted.`,
+              )
+            )
+              return;
+            try {
+              await api("/api/campaigns/" + c.id, { method: "DELETE" });
+              notice("Campaign deleted.", "success");
+              await load();
+            } catch (err) {
+              notice(err.message);
+            }
+          }
+        });
+        $("campaign-form").addEventListener("submit", async (e) => {
+          e.preventDefault();
+          clearNotice();
+          const id = $("campaign-id").value;
+          const payload = {
+            name: $("name").value.trim(),
+            description: $("description").value.trim(),
+            channel: $("channel").value,
+            status: $("status").value,
+            link_ids: JSON.parse($("link-options").dataset.selected || "[]"),
+          };
+          $("save-campaign").disabled = true;
+          $("save-campaign").textContent = "Saving…";
+          try {
+            await api(id ? "/api/campaigns/" + id : "/api/campaigns", {
+              method: id ? "PATCH" : "POST",
+              body: JSON.stringify(payload),
+            });
+            closeForm();
+            notice(
+              id
+                ? "Campaign updated successfully."
+                : "Campaign created successfully.",
+              "success",
+            );
+            await load();
+          } catch (err) {
+            notice(err.message);
+          } finally {
+            $("save-campaign").disabled = false;
+            $("save-campaign").textContent = "Save campaign";
+          }
+        });
+        $("logout").onclick = () => {
+          sessionStorage.removeItem("shortie_token");
+          location.href = "login.html";
+        };
+        api("/api/auth/me")
+          .then((d) => {
+            const u = d.user || {};
+            $("user-name").textContent = u.full_name || "Your account";
+            $("user-email").textContent = u.email || "";
+            $("avatar").textContent = (u.full_name || "U")
+              .trim()
+              .charAt(0)
+              .toUpperCase();
+          })
+          .catch(() => {});
+        load();
+      })();
+    </script>
+  </body>
+</html>

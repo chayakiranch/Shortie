@@ -21,7 +21,7 @@
           <a href="Dashboard.html" class="nav-link">Links</a>
           <a href="ShortenURL.html" class="nav-link">Shorten URL</a>
           <a href="Analytics.html" class="nav-link active">Analytics</a>
-          <a href="#" class="nav-link">Campaigns</a>
+          <a href="Campaigns.html" class="nav-link">Campaigns</a>
           <a href="QRcodes.html" class="nav-link">QR codes</a>
           <a href="#" class="nav-link">Domains</a>
           <a href="#" class="nav-link">API keys</a>
@@ -115,7 +115,7 @@
           <div class="panel-heading">
             <div>
               <h2>Traffic trend</h2>
-              <p id="trafficSubtitle">Clicks grouped by date</p>
+              <p id="trafficSubtitle">Clicks by hour (UTC)</p>
             </div>
           </div>
 
@@ -277,6 +277,8 @@
           params.set("end_date", currentEndDate);
         }
 
+        // Send the browser's timezone offset so Daily traffic uses local hours.
+        params.set("tz_offset_minutes", String(new Date().getTimezoneOffset()));
         return params.toString();
       }
 
@@ -291,6 +293,25 @@
             apiRequest(`/api/analytics/clicks?${query}`),
             apiRequest(`/api/analytics/top-links?${query}`),
           ]);
+
+          // The overview endpoint may not include unique-visitor estimates.
+          // Reuse the separately tested endpoint when it is available.
+          if (overview.unique_visitors == null) {
+            try {
+              const visitorStats = await apiRequest(
+                `/api/analytics/unique-visitors?${query}`,
+              );
+              if (visitorStats.unique_visitors != null) {
+                overview.unique_visitors = visitorStats.unique_visitors;
+              }
+            } catch (visitorError) {
+              // Keep the rest of analytics usable if visitor estimation fails.
+              console.warn(
+                "Unique visitor estimate unavailable:",
+                visitorError,
+              );
+            }
+          }
 
           currentOverview = overview;
           currentTraffic = traffic.data || [];
@@ -342,6 +363,12 @@
         }
 
         chart.className = "traffic-chart";
+        const localTimeZone =
+          Intl.DateTimeFormat().resolvedOptions().timeZone || "local time";
+        $("trafficSubtitle").textContent =
+          currentPeriod === "daily"
+            ? `Clicks by hour (${localTimeZone})`
+            : "Clicks grouped by date";
 
         const maxClicks = Math.max(
           1,
@@ -356,16 +383,19 @@
 
           const bar = document.createElement("div");
           bar.className = "chart-bar";
-          bar.style.height = `${Math.max(3, (value / maxClicks) * 100)}%`;
+          bar.style.height = `${Math.max(3, (value / maxClicks) * 140)}px`;
           bar.title = `${item.date}: ${value} clicks`;
           bar.setAttribute("aria-label", `${item.date}: ${value} clicks`);
 
           const label = document.createElement("span");
           label.className = "chart-label";
 
-          // Keep labels readable for long custom ranges.
-          label.textContent = item.date.slice(5);
-          label.title = item.date;
+          // Daily rows include an hourly label; other periods use month-day labels.
+          label.textContent = item.label || item.date.slice(5);
+          label.title =
+            currentPeriod === "daily"
+              ? `${item.date} ${item.label || ""} local time (${Intl.DateTimeFormat().resolvedOptions().timeZone || "browser timezone"})`
+              : item.date;
 
           const count = document.createElement("span");
           count.className = "chart-value";

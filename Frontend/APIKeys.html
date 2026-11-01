@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>API keys | Shortie</title><link rel="stylesheet" href="APIKeys.css">
+</head>
+<body>
+<aside class="sidebar"><a class="brand" href="Dashboard.html">Shortie</a><nav aria-label="Main navigation"><a href="Dashboard.html">Links</a><a href="ShortenURL.html">Shorten URL</a><a href="Analytics.html">Analytics</a><a href="Campaigns.html">Campaigns</a><a href="QRcodes.html">QR codes</a><a href="Domains.html">Domains</a><a class="active" href="APIKeys.html">API keys</a><a href="Settings.html">Settings</a></nav><div class="account"><div class="avatar" id="avatar">S</div><div class="account-copy"><strong id="accountName">Shortie user</strong><span id="accountEmail"></span></div><button class="logout" id="logoutBtn">Log out</button></div></aside>
+<main class="main">
+<header class="page-header"><div><h1>API keys</h1><p>Create keys so your own apps can call the Shortie API without logging in through the browser.</p></div><button class="btn" id="refreshBtn">Refresh</button></header>
+<div id="alert" class="alert" role="status" hidden></div>
+<section class="panel"><h2>Create API key</h2><form id="createForm" class="create-form"><div class="field"><label for="keyName">Key name</label><input id="keyName" maxlength="60" minlength="2" placeholder="e.g. Website integration" required></div><button class="btn btn-primary" id="createBtn" type="submit">Create key</button></form></section>
+<section class="panel reveal-panel" id="revealPanel" hidden><h2 id="revealTitle">Key created</h2><div class="secret-row"><code id="newSecret"></code><button class="btn btn-primary" id="copyKeyBtn" type="button">Copy key</button></div><p class="help">Save this key now. Only its hash is stored, so the full key cannot be shown again.</p><button class="btn" id="dismissRevealBtn" type="button">I've saved my key</button></section>
+<section class="panel"><div class="section-heading"><div><h2>Your API keys</h2><p>These records are loaded from your Shortie account. No sample keys are shown.</p></div><input id="searchKeys" class="search" placeholder="Search API keys" aria-label="Search API keys"></div><div class="table-wrap"><table><thead><tr><th>Name</th><th>Key</th><th>Scopes</th><th>Status</th><th>Created</th><th>Last used</th><th>Actions</th></tr></thead><tbody id="keysBody"><tr><td colspan="7" class="empty">Loading keys…</td></tr></tbody></table></div><p id="keyEmpty" class="empty-note" hidden>No API keys yet. Create one above to connect your application.</p></section>
+<div class="summary-grid"><section class="panel usage-panel"><h2>Monthly usage</h2><div class="usage-number"><strong id="usageCount">—</strong><span>requests this month</span></div><div class="progress"><span id="usageBar"></span></div><p id="usageCaption">Usage is calculated from authenticated API-key requests recorded by Shortie.</p></section><section class="panel rate-panel"><h2>Rate limit</h2><strong class="rate-number">60 <small>/ min</small></strong><p>Per API key. Requests above this limit are rejected with HTTP 429.</p></section></div>
+<section class="panel"><div class="section-heading"><div><h2>Webhooks</h2><p>Configure endpoints to receive test events. Real link-event delivery can be added to link workflows separately.</p></div><button class="btn btn-primary" id="addWebhookBtn">Add webhook</button></div><form id="webhookForm" class="webhook-form" hidden><div class="field"><label for="webhookUrl">Endpoint URL</label><input id="webhookUrl" type="url" placeholder="https://example.com/webhooks/shortie" required></div><fieldset><legend>Events</legend><label class="check"><input type="checkbox" value="link.created" checked> Link created</label><label class="check"><input type="checkbox" value="link.clicked"> Link clicked</label><label class="check"><input type="checkbox" value="link.deleted"> Link deleted</label></fieldset><div class="form-actions"><button type="button" class="btn" id="cancelWebhookBtn">Cancel</button><button class="btn btn-primary" type="submit" id="saveWebhookBtn">Save webhook</button></div></form><div class="table-wrap"><table><thead><tr><th>Endpoint</th><th>Events</th><th>Status</th><th>Last test</th><th>Actions</th></tr></thead><tbody id="webhooksBody"><tr><td colspan="5" class="empty">Loading webhooks…</td></tr></tbody></table></div><p id="webhookEmpty" class="empty-note" hidden>No webhooks configured.</p></section>
+<section class="panel use-panel"><h2>Use your key</h2><pre><code>GET /api/links
+Authorization: Bearer YOUR_API_KEY</code></pre><p>Keep API keys secret. Revoke a key immediately if it is exposed.</p></section>
+</main>
+<script>
+(() => {
+  const API_BASE = (window.SHORTIE_API_BASE || 'http://127.0.0.1:8000').replace(/\/$/, '');
+  const $ = id => document.getElementById(id);
+  let token = sessionStorage.getItem('shortie_token') || '';
+  let keys = [], webhooks = [], revealedSecret = '';
+  const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  function alertMsg(message, type='success') { const el=$('alert'); el.textContent=message; el.className='alert '+type; el.hidden=false; }
+  function clearAlert(){ $('alert').hidden=true; }
+  function dateText(v){ if(!v) return 'Never'; const d=new Date(v); return Number.isNaN(d.getTime())?'—':d.toLocaleDateString(undefined,{day:'2-digit',month:'short',year:'numeric'}); }
+  async function api(path, opts={}) {
+    token = sessionStorage.getItem('shortie_token') || '';
+    if(!token) { throw new Error('Your login session is missing. Please log in again, then reopen API keys.'); }
+    let response;
+    try { response=await fetch(API_BASE+path,{...opts,headers:{Authorization:'Bearer '+token,...(opts.body?{'Content-Type':'application/json'}:{}),...(opts.headers||{})}}); }
+    catch { throw new Error('Could not connect to Shortie API. Check that FastAPI is running at '+API_BASE+'.'); }
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok) {
+      if(response.status===401) throw new Error('Authentication failed (401). Your login token may have expired. Log out, log in again, then retry.');
+      throw new Error(data.detail || data.message || `Request failed (${response.status})`);
+    }
+    return data;
+  }
+  function renderKeys(){
+    const q=$('searchKeys').value.trim().toLowerCase();
+    const filtered=keys.filter(k=>(k.name||'').toLowerCase().includes(q));
+    $('keysBody').innerHTML=''; $('keyEmpty').hidden=keys.length>0;
+    if(!filtered.length){ $('keysBody').innerHTML=`<tr><td colspan="7" class="empty">${keys.length?'No keys match your search.':'No API keys have been created.'}</td></tr>`; }
+    filtered.forEach(k=>{
+      const status=k.revoked?'<span class="status revoked">Revoked</span>':'<span class="status active">Active</span>';
+      const actions=k.revoked?`<button class="btn btn-small reactivate" data-id="${esc(k.id)}" data-name="${esc(k.name)}">Reactivate</button> <button class="btn btn-small btn-danger delete" data-id="${esc(k.id)}" data-name="${esc(k.name)}">Delete</button>`:`<button class="btn btn-small revoke" data-id="${esc(k.id)}" data-name="${esc(k.name)}">Revoke</button>`;
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td><strong>${esc(k.name)}</strong></td><td><code class="masked">${esc(k.prefix||'sk_shortie_')}••••${esc(k.last_four||'')}</code></td><td>${esc((k.scopes||[]).join(', ')||'—')}</td><td>${status}</td><td>${esc(dateText(k.created_at))}</td><td>${esc(dateText(k.last_used_at))}</td><td class="actions">${actions}</td>`;
+      $('keysBody').appendChild(tr);
+    });
+    const usage=keys.reduce((sum,k)=>sum+Number(k.monthly_usage||0),0); $('usageCount').textContent=usage.toLocaleString();
+    // The visual meter reflects real usage against a documented 10,000-request display scale, not a billing quota.
+    const percent=Math.min(100,usage/10000*100); $('usageBar').style.width=percent+'%';
+    $('usageCaption').textContent=`${usage.toLocaleString()} API-key requests recorded this month. Display scale: 10,000 requests; this is not a billing quota.`;
+  }
+  async function loadKeys(){
+    clearAlert(); $('keysBody').innerHTML='<tr><td colspan="7" class="empty">Loading keys…</td></tr>';
+    try { const d=await api('/api/api-keys'); keys=Array.isArray(d.api_keys)?d.api_keys:[]; renderKeys(); }
+    catch(e){ $('keysBody').innerHTML='<tr><td colspan="7" class="empty">Could not load API keys.</td></tr>'; alertMsg(e.message,'error'); }
+  }
+  async function loadWebhooks(){
+    try { const d=await api('/api/webhooks'); webhooks=Array.isArray(d.webhooks)?d.webhooks:[]; $('webhooksBody').innerHTML=''; $('webhookEmpty').hidden=webhooks.length>0;
+      if(!webhooks.length) $('webhooksBody').innerHTML='<tr><td colspan="5" class="empty">No webhooks configured.</td></tr>';
+      webhooks.forEach(w=>{const tr=document.createElement('tr');tr.innerHTML=`<td class="endpoint">${esc(w.url)}</td><td>${esc((w.events||[]).join(', '))}</td><td><span class="status ${w.active?'active':'revoked'}">${w.active?'Active':'Inactive'}</span></td><td>${esc(dateText(w.last_test_at))}</td><td class="actions"><button class="btn btn-small test-webhook" data-id="${esc(w.id)}">Send test event</button> <button class="btn btn-small btn-danger delete-webhook" data-id="${esc(w.id)}">Delete</button></td>`;$('webhooksBody').appendChild(tr);});
+    } catch(e){ $('webhooksBody').innerHTML='<tr><td colspan="5" class="empty">Could not load webhooks.</td></tr>'; alertMsg(e.message,'error'); }
+  }
+  $('createForm').addEventListener('submit',async e=>{e.preventDefault();clearAlert();const name=$('keyName').value.trim();if(name.length<2)return alertMsg('Key name must contain at least 2 characters.','error');const b=$('createBtn');b.disabled=true;b.textContent='Creating…';try{const d=await api('/api/api-keys',{method:'POST',body:JSON.stringify({name})});revealedSecret=d.api_key.key;$('newSecret').textContent=revealedSecret;$('revealTitle').textContent='Key created: '+d.api_key.name;$('revealPanel').hidden=false;$('keyName').value='';alertMsg('API key created. Copy the secret now; it will not be shown again.');await loadKeys();$('revealPanel').scrollIntoView({behavior:'smooth',block:'center'});}catch(err){alertMsg(err.message,'error');}finally{b.disabled=false;b.textContent='Create key';}});
+  $('copyKeyBtn').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(revealedSecret);$('copyKeyBtn').textContent='Copied!';setTimeout(()=>$('copyKeyBtn').textContent='Copy key',1300);}catch{alertMsg('Clipboard permission unavailable. Select the key and copy it manually.','error');}});
+  $('dismissRevealBtn').addEventListener('click',()=>{revealedSecret='';$('newSecret').textContent='';$('revealPanel').hidden=true;});
+  $('keysBody').addEventListener('click',async e=>{const b=e.target.closest('button[data-id]');if(!b)return;const id=b.dataset.id,name=b.dataset.name;try{b.disabled=true;if(b.classList.contains('revoke')){if(!confirm(`Revoke “${name}”? Applications using this key will stop working.`))return;const d=await api('/api/api-keys/'+encodeURIComponent(id),{method:'DELETE'});alertMsg(d.message||'Key revoked.');}else if(b.classList.contains('reactivate')){if(!confirm(`Reactivate “${name}”? Its existing secret will work again.`))return;const d=await api('/api/api-keys/'+encodeURIComponent(id)+'/reactivate',{method:'PATCH'});alertMsg(d.message||'Key reactivated.');}else if(b.classList.contains('delete')){if(!confirm(`Permanently delete “${name}”? This cannot be undone.`))return;const d=await api('/api/api-keys/'+encodeURIComponent(id)+'/permanent',{method:'DELETE'});alertMsg(d.message||'Key deleted.');}await loadKeys();}catch(err){alertMsg(err.message,'error');}finally{b.disabled=false;}});
+  $('searchKeys').addEventListener('input',renderKeys);$('refreshBtn').addEventListener('click',()=>{loadKeys();loadWebhooks();});
+  $('addWebhookBtn').addEventListener('click',()=>{$('webhookForm').hidden=false;$('webhookUrl').focus();});$('cancelWebhookBtn').addEventListener('click',()=>{$('webhookForm').reset();$('webhookForm').hidden=true;});
+  $('webhookForm').addEventListener('submit',async e=>{e.preventDefault();const events=[...$('webhookForm').querySelectorAll('input[type=checkbox]:checked')].map(x=>x.value);if(!events.length)return alertMsg('Select at least one event.','error');const b=$('saveWebhookBtn');b.disabled=true;try{const d=await api('/api/webhooks',{method:'POST',body:JSON.stringify({url:$('webhookUrl').value.trim(),events})});alertMsg(d.message||'Webhook saved.');$('webhookForm').reset();$('webhookForm').hidden=true;await loadWebhooks();}catch(err){alertMsg(err.message,'error');}finally{b.disabled=false;}});
+  $('webhooksBody').addEventListener('click',async e=>{const b=e.target.closest('button[data-id]');if(!b)return;try{b.disabled=true;if(b.classList.contains('test-webhook')){const d=await api('/api/webhooks/'+encodeURIComponent(b.dataset.id)+'/test',{method:'POST'});alertMsg(d.message||'Test event delivered.');}else if(b.classList.contains('delete-webhook')){if(!confirm('Delete this webhook?'))return;const d=await api('/api/webhooks/'+encodeURIComponent(b.dataset.id),{method:'DELETE'});alertMsg(d.message||'Webhook deleted.');}await loadWebhooks();}catch(err){alertMsg(err.message,'error');}finally{b.disabled=false;}});
+  $('logoutBtn').addEventListener('click',()=>{sessionStorage.removeItem('shortie_token');location.href='login.html';});
+  api('/api/auth/me').then(d=>{const u=d.user||{};$('accountName').textContent=u.full_name||'Shortie user';$('accountEmail').textContent=u.email||'';$('avatar').textContent=(u.full_name||'S').trim().charAt(0).toUpperCase();}).catch(()=>{});
+  loadKeys();loadWebhooks();
+})();
+</script>
+</body></html>

@@ -2,33 +2,32 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Shortie - Shorten URL</title>
-
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Shortie — Shorten a URL</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="ShortenURL.css" />
   </head>
-
   <body>
     <div class="app-layout">
       <aside class="sidebar">
         <a href="Dashboard.html" class="logo">Shortie</a>
-
-        <nav class="sidebar-nav">
+        <nav class="sidebar-nav" aria-label="Main navigation">
           <a href="Dashboard.html" class="nav-link">Links</a>
-          <a href="ShortenURL.html" class="nav-link active">Shorten URL</a>
+          <a href="ShortenURL.html" class="nav-link active" aria-current="page"
+            >Shorten URL</a
+          >
           <a href="Analytics.html" class="nav-link">Analytics</a>
-          <a href="#" class="nav-link">Campaigns</a>
+          <a href="Campaigns.html" class="nav-link">Campaigns</a>
           <a href="QRcodes.html" class="nav-link">QR codes</a>
           <a href="#" class="nav-link">Domains</a>
-          <a href="#" class="nav-link">API keys</a>
-          <a href="#" class="nav-link">Settings</a>
+          <a href="APIKeys.html" class="nav-link">API keys</a>
+          <a href="Settings.html" class="nav-link">Settings</a>
         </nav>
-
         <div class="sidebar-user">
           <div class="user-info">
             <div class="user-avatar" id="userAvatar">--</div>
@@ -37,7 +36,6 @@
               <p id="userEmail">Loading...</p>
             </div>
           </div>
-
           <button class="logout-button" id="logoutButton" type="button">
             Log out
           </button>
@@ -52,9 +50,9 @@
           </p>
         </header>
 
-        <section class="form-card">
+        <section class="form-card" aria-label="Shorten a URL">
           <form id="shortenForm">
-            <div class="form-group">
+            <div class="form-group full-width">
               <label for="originalUrl">Original URL</label>
               <input
                 type="url"
@@ -65,9 +63,11 @@
               />
             </div>
 
-            <div class="form-row">
+            <div class="form-grid">
               <div class="form-group">
-                <label for="customAlias">Custom alias (optional)</label>
+                <label for="customAlias"
+                  >Custom alias <span>(optional)</span></label
+                >
                 <input
                   type="text"
                   id="customAlias"
@@ -76,59 +76,67 @@
                   pattern="[A-Za-z0-9_-]{3,40}"
                   title="Use 3–40 letters, numbers, hyphens or underscores."
                 />
+                <small
+                  >Leave empty to generate a unique code. Aliases must be
+                  unique.</small
+                >
               </div>
-
               <div class="form-group">
-                <label for="expiryDate">Expiry date (optional)</label>
+                <label for="linkPassword"
+                  >Password protection <span>(optional)</span></label
+                >
+                <input
+                  type="password"
+                  id="linkPassword"
+                  placeholder="Set a password for this link"
+                  minlength="4"
+                  maxlength="128"
+                  autocomplete="new-password"
+                />
+                <small>Leave blank for a public link.</small>
+              </div>
+              <div class="form-group">
+                <label for="activationDate"
+                  >Schedule activation <span>(optional)</span></label
+                >
+                <input type="date" id="activationDate" />
+                <small>The link is unavailable until this date.</small>
+              </div>
+              <div class="form-group">
+                <label for="expiryDate"
+                  >Expiry date <span>(optional)</span></label
+                >
                 <input type="date" id="expiryDate" />
+                <small>The link stops working after this date.</small>
               </div>
             </div>
 
-            <div class="form-group">
-              <label for="linkPassword">Password protection (optional)</label>
-              <input
-                type="password"
-                id="linkPassword"
-                placeholder="Set a password for this link"
-                minlength="4"
-                maxlength="128"
-                autocomplete="new-password"
-              />
-              <small class="form-help">
-                Leave blank for a public link. Visitors must enter this password
-                before opening a protected link.
-              </small>
+            <div class="form-footer">
+              <p
+                id="formMessage"
+                class="form-message"
+                role="status"
+                aria-live="polite"
+              ></p>
+              <button
+                class="primary-button submit-button"
+                type="submit"
+                id="shortenButton"
+              >
+                Shorten URL
+              </button>
             </div>
-
-            <p class="form-help">
-              Leave the alias empty to generate a unique code. Custom aliases
-              must be unique.
-            </p>
-
-            <button class="primary-button" type="submit" id="shortenButton">
-              Shorten URL
-            </button>
-
-            <p
-              id="formMessage"
-              class="form-message"
-              role="status"
-              aria-live="polite"
-            ></p>
           </form>
         </section>
 
         <section class="result-card" id="resultCard" hidden>
           <span class="result-badge">Saved to your account</span>
-
           <div class="result-main">
             <div class="result-info">
               <h2 id="shortUrlText"></h2>
               <p class="destination-label">Destination URL</p>
-
               <div id="resultDestination"></div>
             </div>
-
             <div class="result-actions">
               <button
                 class="primary-button"
@@ -137,27 +145,33 @@
               >
                 Copy link
               </button>
-
               <button class="secondary-button" type="button" id="showQrButton">
                 Show QR
               </button>
             </div>
           </div>
-
           <div class="qr-container" id="qrContainer" hidden>
             <img id="qrImage" alt="QR code for the short URL" />
           </div>
         </section>
 
-        <section class="form-card bulk-import-card">
-          <h2>Bulk import links</h2>
-          <p class="form-help">
-            Upload a CSV with an <code>original_url</code> column and optional
-            <code>alias</code> and <code>expiry_date</code> columns
-            (YYYY-MM-DD). Up to 200 rows per upload.
-          </p>
-          <div class="bulk-import-actions">
-            <input type="file" id="bulkCsvFile" accept=".csv,text/csv" />
+        <section class="bulk-card">
+          <div class="bulk-copy">
+            <h2>Bulk import links</h2>
+            <p>
+              CSV with <code>original_url</code>, optional
+              <code>alias</code> and <code>expiry_date</code> (YYYY-MM-DD). Up
+              to 200 rows.
+            </p>
+          </div>
+          <div class="bulk-controls">
+            <label class="file-picker" for="bulkCsvFile"
+              ><span>Choose CSV file</span
+              ><input type="file" id="bulkCsvFile" accept=".csv,text/csv" /><em
+                id="fileName"
+                >No file chosen</em
+              ></label
+            >
             <button class="primary-button" type="button" id="bulkImportButton">
               Import CSV
             </button>
@@ -166,12 +180,12 @@
               type="button"
               id="downloadCsvTemplate"
             >
-              Download CSV template
+              Download template
             </button>
           </div>
           <p
             id="bulkImportMessage"
-            class="form-message"
+            class="form-message bulk-message"
             role="status"
             aria-live="polite"
           ></p>
@@ -182,508 +196,145 @@
           ></div>
         </section>
 
-        <section class="result-card" id="resultCard" hidden>
-          <span class="result-badge">Saved to your account</span>
-
-          <div class="result-main">
-            <div class="result-info">
-              <h2 id="shortUrlText"></h2>
-              <p class="destination-label">Destination URL</p>
-
-              <div id="resultDestination"></div>
-            </div>
-
-            <div class="result-actions">
-              <button
-                class="primary-button"
-                type="button"
-                id="copyResultButton"
-              >
-                Copy link
-              </button>
-
-              <button class="secondary-button" type="button" id="showQrButton">
-                Show QR
-              </button>
-            </div>
-          </div>
-
-          <div class="qr-container" id="qrContainer" hidden>
-            <img id="qrImage" alt="QR code for the short URL" />
-          </div>
-        </section>
-
         <section class="recent-section">
           <div class="section-heading">
             <div>
               <h2>Recent links</h2>
               <p class="section-subtitle">Your saved links from MongoDB</p>
             </div>
-
-            <button
-              class="secondary-button"
-              type="button"
-              id="refreshLinksButton"
-            >
-              Refresh
-            </button>
+            <div class="table-tools">
+              <label class="search-box"
+                ><span class="visually-hidden">Search links</span
+                ><input
+                  type="search"
+                  id="linkSearch"
+                  placeholder="Search links"
+              /></label>
+              <button
+                class="secondary-button"
+                type="button"
+                id="refreshLinksButton"
+              >
+                Refresh
+              </button>
+            </div>
           </div>
-
           <div class="table-card">
-            <table class="links-table">
-              <thead>
-                <tr>
-                  <th>Short link / original</th>
-                  <th>Created</th>
-                  <th>Clicks</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-
-              <tbody id="recentLinksBody">
-                <tr>
-                  <td colspan="4" class="empty-state">
-                    Loading your saved links...
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <div class="table-scroll">
+              <table class="links-table">
+                <thead>
+                  <tr>
+                    <th>Short link / original</th>
+                    <th>Created</th>
+                    <th class="numeric">Clicks</th>
+                    <th>Status</th>
+                    <th class="actions-heading">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="recentLinksBody">
+                  <tr>
+                    <td colspan="5" class="empty-state">
+                      Loading your saved links...
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="table-footer">
+              <span id="paginationInfo">Showing 0 links</span>
+              <div class="pagination">
+                <button
+                  class="secondary-button"
+                  id="previousPage"
+                  type="button"
+                  disabled
+                >
+                  Previous</button
+                ><button
+                  class="secondary-button"
+                  id="nextPage"
+                  type="button"
+                  disabled
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           </div>
         </section>
       </main>
     </div>
 
     <script>
-      const API_URL = "http://127.0.0.1:8000";
-      const token = sessionStorage.getItem("shortie_token");
+      (() => {
+        "use strict";
+        const API_URL = "http://127.0.0.1:8000";
+        const token = sessionStorage.getItem("shortie_token");
+        const $ = (id) => document.getElementById(id);
+        const form = $("shortenForm");
+        const urlInput = $("originalUrl");
+        const aliasInput = $("customAlias");
+        const activationInput = $("activationDate");
+        const expiryInput = $("expiryDate");
+        const formMessage = $("formMessage");
+        const resultCard = $("resultCard");
+        const recentLinksBody = $("recentLinksBody");
+        const PAGE_SIZE = 6;
+        let savedLinks = [];
+        let latestShortUrl = "";
+        let currentPage = 1;
 
-      const $ = (id) => document.getElementById(id);
-
-      const form = $("shortenForm");
-      const urlInput = $("originalUrl");
-      const aliasInput = $("customAlias");
-      const expiryInput = $("expiryDate");
-      const formMessage = $("formMessage");
-      const resultCard = $("resultCard");
-      const recentLinksBody = $("recentLinksBody");
-
-      let savedLinks = [];
-      let latestShortUrl = "";
-
-      if (!token) {
-        window.location.replace("login.html");
-      } else {
-        initializePage();
-      }
-
-      async function initializePage() {
-        try {
-          await loadUser();
-          await loadRecentLinks();
-        } catch (error) {
-          console.error(error);
-          showMessage(error.message);
+        if (!token) {
+          window.location.replace("login.html");
+          return;
         }
-      }
 
-      async function apiRequest(path, options = {}) {
-        const response = await fetch(`${API_URL}${path}`, {
-          ...options,
-          headers: {
-            Authorization: `Bearer ${token}`,
-            ...(options.body
-              ? {
-                  "Content-Type": "application/json",
-                }
-              : {}),
-            ...(options.headers || {}),
-          },
-        });
-
-        if (response.status === 401 || response.status === 403) {
+        $("logoutButton").addEventListener("click", () => {
           sessionStorage.removeItem("shortie_token");
           window.location.replace("login.html");
-          throw new Error("Your session has expired. Please log in again.");
-        }
-
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-          throw new Error(
-            typeof data.detail === "string"
-              ? data.detail
-              : "The server request failed.",
-          );
-        }
-
-        return data;
-      }
-
-      async function loadUser() {
-        const data = await apiRequest("/api/auth/me");
-        const user = data.user;
-
-        $("userName").textContent = user.full_name;
-        $("userEmail").textContent = user.email;
-
-        $("userAvatar").textContent = user.full_name
-          .trim()
-          .split(/\s+/)
-          .filter(Boolean)
-          .slice(0, 2)
-          .map((part) => part[0].toUpperCase())
-          .join("");
-      }
-
-      function showMessage(message, type = "error") {
-        formMessage.textContent = message;
-        formMessage.className = `form-message ${type}`;
-      }
-
-      function validHttpUrl(value) {
-        try {
-          const url = new URL(value);
-          return url.protocol === "http:" || url.protocol === "https:";
-        } catch {
-          return false;
-        }
-      }
-
-      function formatDate(value) {
-        if (!value) return "—";
-
-        const date = new Date(value);
-
-        return Number.isNaN(date.getTime()) ? "—" : date.toLocaleDateString();
-      }
-
-      // More / Less for long URLs
-      function createExpandableUrl(url, maxLength = 55) {
-        const wrapper = document.createElement("div");
-        wrapper.className = "expandable-url";
-
-        const text = document.createElement("span");
-        text.className = "expandable-url-text";
-        text.textContent = url || "—";
-
-        wrapper.appendChild(text);
-
-        if (url && url.length > maxLength) {
-          text.classList.add("url-collapsed");
-
-          const button = document.createElement("button");
-          button.type = "button";
-          button.className = "url-more-button";
-          button.textContent = "More";
-          button.setAttribute("aria-expanded", "false");
-
-          button.addEventListener("click", () => {
-            const expanded = button.getAttribute("aria-expanded") === "true";
-
-            button.setAttribute("aria-expanded", String(!expanded));
-            text.classList.toggle("url-collapsed", expanded);
-            button.textContent = expanded ? "More" : "Less";
-          });
-
-          wrapper.appendChild(button);
-        }
-
-        return wrapper;
-      }
-
-      async function loadRecentLinks() {
-        recentLinksBody.replaceChildren();
-
-        const loadingRow = document.createElement("tr");
-        const loadingCell = document.createElement("td");
-
-        loadingCell.colSpan = 4;
-        loadingCell.className = "empty-state";
-        loadingCell.textContent = "Loading your saved links...";
-
-        loadingRow.appendChild(loadingCell);
-        recentLinksBody.appendChild(loadingRow);
-
-        try {
-          const data = await apiRequest("/api/links");
-          savedLinks = Array.isArray(data.links) ? data.links : [];
-
-          renderRecentLinks();
-        } catch (error) {
-          showEmptyState("Unable to load saved links.");
-          throw error;
-        }
-      }
-
-      function showEmptyState(message) {
-        recentLinksBody.replaceChildren();
-
-        const row = document.createElement("tr");
-        const cell = document.createElement("td");
-
-        cell.colSpan = 4;
-        cell.className = "empty-state";
-        cell.textContent = message;
-
-        row.appendChild(cell);
-        recentLinksBody.appendChild(row);
-      }
-
-      function renderRecentLinks() {
-        recentLinksBody.replaceChildren();
-
-        if (savedLinks.length === 0) {
-          showEmptyState("No saved links yet. Create your first short link.");
-          return;
-        }
-
-        savedLinks.forEach((link) => {
-          const row = document.createElement("tr");
-
-          const linkCell = document.createElement("td");
-          linkCell.className = "link-cell";
-
-          const shortLink = document.createElement("a");
-          shortLink.className = "recent-short-link";
-          shortLink.href = link.short_url;
-          shortLink.target = "_blank";
-          shortLink.rel = "noopener noreferrer";
-          shortLink.textContent = link.short_url || link.code;
-
-          const original = createExpandableUrl(link.original_url);
-
-          linkCell.append(shortLink, original);
-
-          const createdCell = document.createElement("td");
-          createdCell.textContent = formatDate(link.created_at);
-
-          const clicksCell = document.createElement("td");
-          clicksCell.textContent = (Number(link.clicks) || 0).toLocaleString();
-
-          const actionCell = document.createElement("td");
-
-          const copyButton = document.createElement("button");
-          copyButton.type = "button";
-          copyButton.className = "secondary-button small-button";
-          copyButton.textContent = "Copy";
-
-          copyButton.addEventListener("click", async () => {
-            try {
-              await navigator.clipboard.writeText(link.short_url);
-              copyButton.textContent = "Copied!";
-
-              setTimeout(() => {
-                copyButton.textContent = "Copy";
-              }, 1500);
-            } catch {
-              showMessage("Unable to copy. Copy the URL manually.");
-            }
-          });
-
-          actionCell.appendChild(copyButton);
-
-          // Edit destination URL
-          const editButton = document.createElement("button");
-          editButton.type = "button";
-          editButton.className = "secondary-button small-button";
-          editButton.textContent = "Edit URL";
-
-          editButton.addEventListener("click", async () => {
-            const newUrl = window.prompt(
-              "Enter the new destination URL:",
-              link.original_url || "",
-            );
-
-            if (newUrl === null) return;
-
-            const destination = newUrl.trim();
-
-            if (!validHttpUrl(destination)) {
-              showMessage(
-                "Enter a valid URL beginning with http:// or https://",
-              );
-              return;
-            }
-
-            editButton.disabled = true;
-
-            try {
-              await apiRequest(`/api/links/${encodeURIComponent(link.id)}`, {
-                method: "PATCH",
-                body: JSON.stringify({ original_url: destination }),
-              });
-
-              showMessage("Destination URL updated successfully.", "success");
-              await loadRecentLinks();
-            } catch (error) {
-              showMessage(`Could not update URL: ${error.message}`);
-            } finally {
-              editButton.disabled = false;
-            }
-          });
-
-          actionCell.appendChild(editButton);
-
-          // Delete short link
-          const deleteButton = document.createElement("button");
-          deleteButton.type = "button";
-          deleteButton.className = "delete-button small-button";
-          deleteButton.textContent = "Delete";
-
-          deleteButton.addEventListener("click", async () => {
-            const confirmed = window.confirm(
-              `Permanently delete ${link.short_url || link.code}?`,
-            );
-
-            if (!confirmed) return;
-
-            deleteButton.disabled = true;
-
-            try {
-              await apiRequest(`/api/links/${encodeURIComponent(link.id)}`, {
-                method: "DELETE",
-              });
-
-              showMessage("Short link deleted successfully.", "success");
-              await loadRecentLinks();
-            } catch (error) {
-              showMessage(`Could not delete link: ${error.message}`);
-            } finally {
-              deleteButton.disabled = false;
-            }
-          });
-
-          actionCell.appendChild(deleteButton);
-
-          row.append(linkCell, createdCell, clicksCell, actionCell);
-
-          recentLinksBody.appendChild(row);
         });
-      }
+        $("refreshLinksButton").addEventListener("click", () =>
+          loadRecentLinks().catch((e) => showMessage(e.message)),
+        );
+        $("linkSearch").addEventListener("input", () => {
+          currentPage = 1;
+          renderRecentLinks();
+        });
+        $("previousPage").addEventListener("click", () => {
+          if (currentPage > 1) {
+            currentPage--;
+            renderRecentLinks();
+          }
+        });
+        $("nextPage").addEventListener("click", () => {
+          currentPage++;
+          renderRecentLinks();
+        });
+        $("bulkCsvFile").addEventListener("change", () => {
+          $("fileName").textContent =
+            $("bulkCsvFile").files[0]?.name || "No file chosen";
+        });
 
-      form.addEventListener("submit", async (event) => {
-        event.preventDefault();
+        initializePage();
 
-        const originalUrl = urlInput.value.trim();
-        const alias = aliasInput.value.trim();
-        const expiryDate = expiryInput.value;
-        const password = $("linkPassword").value;
-
-        if (!validHttpUrl(originalUrl)) {
-          showMessage("Enter a valid URL beginning with http:// or https://");
-          return;
+        async function initializePage() {
+          try {
+            await loadUser();
+            await loadRecentLinks();
+          } catch (error) {
+            console.error(error);
+            showMessage(error.message);
+          }
         }
 
-        if (alias && !/^[A-Za-z0-9_-]{3,40}$/.test(alias)) {
-          showMessage(
-            "Alias must contain 3–40 letters, numbers, hyphens or underscores.",
-          );
-          return;
-        }
-
-        if (expiryDate && expiryDate < new Date().toISOString().slice(0, 10)) {
-          showMessage("Expiry date cannot be in the past.");
-          return;
-        }
-
-        if (password && (password.length < 4 || password.length > 128)) {
-          showMessage("Password must be between 4 and 128 characters.");
-          return;
-        }
-
-        const button = $("shortenButton");
-        button.disabled = true;
-        button.textContent = "Creating...";
-
-        try {
-          const payload = {
-            original_url: originalUrl,
-            password: password || null,
-          };
-
-          if (alias) payload.alias = alias;
-          if (expiryDate) payload.expiry_date = expiryDate;
-
-          const link = await apiRequest("/api/links", {
-            method: "POST",
-            body: JSON.stringify(payload),
-          });
-
-          latestShortUrl = link.short_url;
-
-          $("shortUrlText").textContent = link.short_url;
-
-          $("resultDestination").replaceChildren(
-            createExpandableUrl(link.original_url),
-          );
-
-          resultCard.hidden = false;
-          $("qrContainer").hidden = true;
-
-          showMessage(
-            password
-              ? "Password-protected short link created successfully."
-              : "Short link created and saved successfully.",
-            "success",
-          );
-
-          form.reset();
-
-          await loadRecentLinks();
-
-          resultCard.scrollIntoView({
-            behavior: "smooth",
-            block: "nearest",
-          });
-        } catch (error) {
-          showMessage(error.message);
-        } finally {
-          button.disabled = false;
-          button.textContent = "Shorten URL";
-        }
-      });
-
-      $("downloadCsvTemplate").addEventListener("click", () => {
-        const csv =
-          "original_url,alias,expiry_date\nhttps://example.com,my-example,\nhttps://chaya-kiran-portfolio.vercel.app/\n";
-        const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = "shortie-links-template.csv";
-        link.click();
-        URL.revokeObjectURL(url);
-      });
-
-      $("bulkImportButton").addEventListener("click", async () => {
-        const file = $("bulkCsvFile").files[0];
-        const message = $("bulkImportMessage");
-        const results = $("bulkImportResults");
-        results.replaceChildren();
-        message.className = "form-message";
-        if (!file) {
-          message.textContent = "Choose a CSV file first.";
-          message.classList.add("error");
-          return;
-        }
-        if (!file.name.toLowerCase().endsWith(".csv")) {
-          message.textContent = "Please choose a .csv file.";
-          message.classList.add("error");
-          return;
-        }
-
-        const button = $("bulkImportButton");
-        button.disabled = true;
-        button.textContent = "Importing...";
-        try {
-          const response = await fetch(`${API_URL}/api/links/bulk-import`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}` },
-            body: (() => {
-              const formData = new FormData();
-              formData.append("file", file);
-              return formData;
-            })(),
+        async function apiRequest(path, options = {}) {
+          const response = await fetch(`${API_URL}${path}`, {
+            ...options,
+            headers: {
+              Authorization: `Bearer ${token}`,
+              ...(options.body ? { "Content-Type": "application/json" } : {}),
+              ...(options.headers || {}),
+            },
           });
           if (response.status === 401 || response.status === 403) {
             sessionStorage.removeItem("shortie_token");
@@ -691,78 +342,410 @@
             throw new Error("Your session has expired. Please log in again.");
           }
           const data = await response.json().catch(() => ({}));
-          if (!response.ok) {
+          if (!response.ok)
             throw new Error(
               typeof data.detail === "string"
                 ? data.detail
-                : "CSV import failed.",
+                : "The server request failed.",
             );
+          return data;
+        }
+
+        async function loadUser() {
+          const data = await apiRequest("/api/auth/me");
+          const user = data.user || {};
+          const name = user.full_name || user.name || "Shortie user";
+          $("userName").textContent = name;
+          $("userEmail").textContent = user.email || "";
+          $("userAvatar").textContent = name
+            .trim()
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((p) => p[0].toUpperCase())
+            .join("");
+        }
+
+        function showMessage(message, type = "error") {
+          formMessage.textContent = message;
+          formMessage.className = `form-message ${type}`;
+        }
+        function validHttpUrl(value) {
+          try {
+            const u = new URL(value);
+            return u.protocol === "http:" || u.protocol === "https:";
+          } catch {
+            return false;
           }
-          message.textContent = `Import complete: ${data.created} created, ${data.failed} failed.`;
-          message.classList.add(data.failed ? "error" : "success");
-          const list = document.createElement("ul");
-          data.results.forEach((item) => {
-            const li = document.createElement("li");
-            if (item.status === "created") {
-              li.textContent = `Row ${item.row}: created ${item.link.short_url}`;
-            } else {
-              li.textContent = `Row ${item.row}: ${item.message}`;
-            }
-            list.appendChild(li);
+        }
+        function formatDate(value) {
+          if (!value) return "—";
+          const date = new Date(value);
+          return Number.isNaN(date.getTime())
+            ? "—"
+            : date.toLocaleDateString(undefined, {
+                year: "numeric",
+                month: "numeric",
+                day: "numeric",
+              });
+        }
+        function createExpandableUrl(url, maxLength = 70) {
+          const wrapper = document.createElement("div");
+          wrapper.className = "expandable-url";
+          const text = document.createElement("span");
+          text.className = "expandable-url-text";
+          text.textContent = url || "—";
+          wrapper.appendChild(text);
+          if (url && url.length > maxLength) {
+            text.classList.add("url-collapsed");
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "url-more-button";
+            button.textContent = "More";
+            button.setAttribute("aria-expanded", "false");
+            button.addEventListener("click", () => {
+              const expanded = button.getAttribute("aria-expanded") === "true";
+              button.setAttribute("aria-expanded", String(!expanded));
+              text.classList.toggle("url-collapsed", expanded);
+              button.textContent = expanded ? "More" : "Less";
+            });
+            wrapper.appendChild(button);
+          }
+          return wrapper;
+        }
+        function linkStatus(link) {
+          const now = new Date();
+          const activation = link.activation_date
+            ? new Date(link.activation_date)
+            : null;
+          const expiry = link.expiry_date ? new Date(link.expiry_date) : null;
+          if (link.is_disabled || link.disabled)
+            return { label: "Disabled", kind: "disabled" };
+          if (expiry && !Number.isNaN(expiry.getTime()) && expiry < now)
+            return { label: "Expired", kind: "expired" };
+          if (
+            activation &&
+            !Number.isNaN(activation.getTime()) &&
+            activation > now
+          )
+            return { label: "Scheduled", kind: "scheduled" };
+          return { label: "Active", kind: "active" };
+        }
+
+        async function loadRecentLinks() {
+          recentLinksBody.innerHTML =
+            '<tr><td colspan="5" class="empty-state">Loading your saved links...</td></tr>';
+          const data = await apiRequest("/api/links");
+          savedLinks = Array.isArray(data.links) ? data.links : [];
+          const maxPage = Math.max(
+            1,
+            Math.ceil(filteredLinks().length / PAGE_SIZE),
+          );
+          currentPage = Math.min(currentPage, maxPage);
+          renderRecentLinks();
+        }
+        function filteredLinks() {
+          const query = $("linkSearch").value.trim().toLowerCase();
+          if (!query) return savedLinks;
+          return savedLinks.filter((link) =>
+            [link.short_url, link.code, link.original_url, link.alias].some(
+              (v) =>
+                String(v || "")
+                  .toLowerCase()
+                  .includes(query),
+            ),
+          );
+        }
+        function renderRecentLinks() {
+          recentLinksBody.replaceChildren();
+          const all = filteredLinks();
+          const maxPage = Math.max(1, Math.ceil(all.length / PAGE_SIZE));
+          if (currentPage > maxPage) currentPage = maxPage;
+          const start = (currentPage - 1) * PAGE_SIZE;
+          const pageLinks = all.slice(start, start + PAGE_SIZE);
+          if (!pageLinks.length) {
+            const row = document.createElement("tr");
+            const cell = document.createElement("td");
+            cell.colSpan = 5;
+            cell.className = "empty-state";
+            cell.textContent = all.length
+              ? "No links on this page."
+              : "No matching links found.";
+            row.appendChild(cell);
+            recentLinksBody.appendChild(row);
+          }
+          pageLinks.forEach((link) => {
+            const row = document.createElement("tr");
+            const linkCell = document.createElement("td");
+            linkCell.className = "link-cell";
+            const shortLink = document.createElement("a");
+            shortLink.className = "recent-short-link";
+            shortLink.href = link.short_url || "#";
+            shortLink.target = "_blank";
+            shortLink.rel = "noopener noreferrer";
+            shortLink.textContent = (
+              link.short_url ||
+              link.code ||
+              "Short link"
+            ).replace(/^https?:\/\//, "");
+            linkCell.append(shortLink, createExpandableUrl(link.original_url));
+            const createdCell = document.createElement("td");
+            createdCell.textContent = formatDate(link.created_at);
+            const clicksCell = document.createElement("td");
+            clicksCell.className = "numeric";
+            clicksCell.textContent = (
+              Number(link.clicks) || 0
+            ).toLocaleString();
+            const statusCell = document.createElement("td");
+            const status = linkStatus(link);
+            const badge = document.createElement("span");
+            badge.className = `status-badge ${status.kind}`;
+            badge.textContent = status.label;
+            statusCell.appendChild(badge);
+            const actions = document.createElement("td");
+            actions.className = "action-cell";
+            const copy = document.createElement("button");
+            copy.type = "button";
+            copy.className = "secondary-button small-button";
+            copy.textContent = "Copy";
+            copy.addEventListener("click", async () => {
+              try {
+                await navigator.clipboard.writeText(link.short_url);
+                copy.textContent = "Copied!";
+                setTimeout(() => (copy.textContent = "Copy"), 1300);
+              } catch {
+                window.prompt("Copy this short URL:", link.short_url);
+              }
+            });
+            const edit = document.createElement("button");
+            edit.type = "button";
+            edit.className = "secondary-button small-button";
+            edit.textContent = "Edit URL";
+            edit.addEventListener("click", async () => {
+              const value = window.prompt(
+                "Enter the new destination URL:",
+                link.original_url || "",
+              );
+              if (value === null) return;
+              const destination = value.trim();
+              if (!validHttpUrl(destination)) {
+                showMessage(
+                  "Enter a valid URL beginning with http:// or https://",
+                );
+                return;
+              }
+              edit.disabled = true;
+              try {
+                await apiRequest(`/api/links/${encodeURIComponent(link.id)}`, {
+                  method: "PATCH",
+                  body: JSON.stringify({ original_url: destination }),
+                });
+                showMessage("Destination URL updated successfully.", "success");
+                await loadRecentLinks();
+              } catch (e) {
+                showMessage(`Could not update URL: ${e.message}`);
+              } finally {
+                edit.disabled = false;
+              }
+            });
+            const del = document.createElement("button");
+            del.type = "button";
+            del.className = "delete-button small-button";
+            del.textContent = "Delete";
+            del.addEventListener("click", async () => {
+              if (
+                !window.confirm(
+                  `Permanently delete ${link.short_url || link.code}?`,
+                )
+              )
+                return;
+              del.disabled = true;
+              try {
+                await apiRequest(`/api/links/${encodeURIComponent(link.id)}`, {
+                  method: "DELETE",
+                });
+                showMessage("Short link deleted successfully.", "success");
+                await loadRecentLinks();
+              } catch (e) {
+                showMessage(`Could not delete link: ${e.message}`);
+              } finally {
+                del.disabled = false;
+              }
+            });
+            actions.append(copy, edit, del);
+            row.append(linkCell, createdCell, clicksCell, statusCell, actions);
+            recentLinksBody.appendChild(row);
           });
-          results.appendChild(list);
-          await loadRecentLinks();
-        } catch (error) {
-          message.textContent = error.message;
-          message.classList.add("error");
-        } finally {
-          button.disabled = false;
-          button.textContent = "Import CSV";
+          $("paginationInfo").textContent = all.length
+            ? `Showing ${start + 1}–${Math.min(start + PAGE_SIZE, all.length)} of ${all.length}`
+            : "Showing 0 links";
+          $("previousPage").disabled = currentPage <= 1;
+          $("nextPage").disabled = currentPage >= maxPage;
         }
-      });
 
-      $("copyResultButton").addEventListener("click", async () => {
-        if (!latestShortUrl) return;
+        form.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const originalUrl = urlInput.value.trim(),
+            alias = aliasInput.value.trim(),
+            activationDate = activationInput.value,
+            expiryDate = expiryInput.value,
+            password = $("linkPassword").value;
+          if (!validHttpUrl(originalUrl))
+            return showMessage(
+              "Enter a valid URL beginning with http:// or https://",
+            );
+          if (alias && !/^[A-Za-z0-9_-]{3,40}$/.test(alias))
+            return showMessage(
+              "Alias must contain 3–40 letters, numbers, hyphens or underscores.",
+            );
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const todayText = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+          if (expiryDate && expiryDate < todayText)
+            return showMessage("Expiry date cannot be in the past.");
+          if (activationDate && expiryDate && activationDate > expiryDate)
+            return showMessage(
+              "Activation date cannot be after the expiry date.",
+            );
+          if (password && (password.length < 4 || password.length > 128))
+            return showMessage(
+              "Password must be between 4 and 128 characters.",
+            );
+          const button = $("shortenButton");
+          button.disabled = true;
+          button.textContent = "Creating…";
+          try {
+            const payload = {
+              original_url: originalUrl,
+              password: password || null,
+            };
+            if (alias) payload.alias = alias;
+            if (activationDate) payload.activation_date = activationDate;
+            if (expiryDate) payload.expiry_date = expiryDate;
+            const link = await apiRequest("/api/links", {
+              method: "POST",
+              body: JSON.stringify(payload),
+            });
+            latestShortUrl = link.short_url;
+            $("shortUrlText").textContent = link.short_url;
+            $("resultDestination").replaceChildren(
+              createExpandableUrl(link.original_url),
+            );
+            resultCard.hidden = false;
+            $("qrContainer").hidden = true;
+            showMessage(
+              password
+                ? "Password-protected short link created successfully."
+                : "Short link created and saved successfully.",
+              "success",
+            );
+            form.reset();
+            $("fileName").textContent = "No file chosen";
+            await loadRecentLinks();
+            resultCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          } catch (e) {
+            showMessage(e.message);
+          } finally {
+            button.disabled = false;
+            button.textContent = "Shorten URL";
+          }
+        });
 
-        try {
-          await navigator.clipboard.writeText(latestShortUrl);
-
-          $("copyResultButton").textContent = "Copied!";
-
-          setTimeout(() => {
-            $("copyResultButton").textContent = "Copy link";
-          }, 1500);
-        } catch {
-          showMessage("Clipboard access failed. Copy the link manually.");
-        }
-      });
-
-      $("showQrButton").addEventListener("click", () => {
-        if (!latestShortUrl) return;
-
-        const container = $("qrContainer");
-        const image = $("qrImage");
-
-        image.src =
-          "https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=" +
-          encodeURIComponent(latestShortUrl);
-
-        container.hidden = !container.hidden;
-      });
-
-      $("refreshLinksButton").addEventListener("click", async () => {
-        try {
-          await loadRecentLinks();
-          showMessage("Saved links refreshed.", "success");
-        } catch (error) {
-          showMessage(error.message);
-        }
-      });
-
-      $("logoutButton").addEventListener("click", () => {
-        sessionStorage.removeItem("shortie_token");
-        window.location.replace("login.html");
-      });
+        $("copyResultButton").addEventListener("click", async () => {
+          if (!latestShortUrl) return;
+          try {
+            await navigator.clipboard.writeText(latestShortUrl);
+            $("copyResultButton").textContent = "Copied!";
+            setTimeout(
+              () => ($("copyResultButton").textContent = "Copy link"),
+              1300,
+            );
+          } catch {
+            window.prompt("Copy this short URL:", latestShortUrl);
+          }
+        });
+        $("showQrButton").addEventListener("click", () => {
+          if (!latestShortUrl) return;
+          $("qrImage").src =
+            "https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=" +
+            encodeURIComponent(latestShortUrl);
+          $("qrContainer").hidden = !$("qrContainer").hidden;
+        });
+        $("downloadCsvTemplate").addEventListener("click", () => {
+          const csv =
+            "original_url,alias,expiry_date\nhttps://example.com,my-example,\nhttps://chaya-kiran-portfolio.vercel.app/,,\n";
+          const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "shortie-links-template.csv";
+          a.click();
+          URL.revokeObjectURL(url);
+        });
+        $("bulkImportButton").addEventListener("click", async () => {
+          const file = $("bulkCsvFile").files[0],
+            message = $("bulkImportMessage"),
+            results = $("bulkImportResults");
+          results.replaceChildren();
+          message.textContent = "";
+          message.className = "form-message bulk-message";
+          if (!file) {
+            message.textContent = "Choose a CSV file first.";
+            message.classList.add("error");
+            return;
+          }
+          if (!file.name.toLowerCase().endsWith(".csv")) {
+            message.textContent = "Please choose a .csv file.";
+            message.classList.add("error");
+            return;
+          }
+          const button = $("bulkImportButton");
+          button.disabled = true;
+          button.textContent = "Importing…";
+          try {
+            const fd = new FormData();
+            fd.append("file", file);
+            const response = await fetch(`${API_URL}/api/links/bulk-import`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}` },
+              body: fd,
+            });
+            if (response.status === 401 || response.status === 403) {
+              sessionStorage.removeItem("shortie_token");
+              window.location.replace("login.html");
+              throw new Error("Your session has expired. Please log in again.");
+            }
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok)
+              throw new Error(
+                typeof data.detail === "string"
+                  ? data.detail
+                  : "CSV import failed.",
+              );
+            message.textContent = `Import complete: ${data.created ?? 0} created, ${data.failed ?? 0} failed.`;
+            message.classList.add(data.failed ? "error" : "success");
+            const list = document.createElement("ul");
+            (Array.isArray(data.results) ? data.results : []).forEach(
+              (item) => {
+                const li = document.createElement("li");
+                li.textContent =
+                  item.status === "created"
+                    ? `Row ${item.row}: created ${item.link?.short_url || ""}`
+                    : `Row ${item.row}: ${item.message || "Import failed"}`;
+                list.appendChild(li);
+              },
+            );
+            results.appendChild(list);
+            await loadRecentLinks();
+          } catch (e) {
+            message.textContent = e.message;
+            message.classList.add("error");
+          } finally {
+            button.disabled = false;
+            button.textContent = "Import CSV";
+          }
+        });
+      })();
     </script>
   </body>
 </html>

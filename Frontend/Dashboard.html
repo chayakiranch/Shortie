@@ -21,11 +21,11 @@
           <a href="Dashboard.html" class="nav-link active">Links</a>
           <a href="ShortenURL.html" class="nav-link">Shorten URL</a>
           <a href="Analytics.html" class="nav-link">Analytics</a>
-          <a href="#" class="nav-link">Campaigns</a>
+          <a href="Campaigns.html" class="nav-link">Campaigns</a>
           <a href="QRcodes.html" class="nav-link">QR codes</a>
-          <a href="#" class="nav-link">Domains</a>
-          <a href="#" class="nav-link">API keys</a>
-          <a href="#" class="nav-link">Settings</a>
+          <a href="Domains.html" class="nav-link">Domains</a>
+          <a href="APIKeys.html" class="nav-link">API keys</a>
+          <a href="Settings.html" class="nav-link">Settings</a>
         </nav>
 
         <div class="sidebar-user">
@@ -203,7 +203,7 @@
 
           savedLinks = result.links;
 
-          renderStatistics();
+          await renderStatistics();
           renderLinks();
 
           $("pageDescription").textContent =
@@ -260,7 +260,7 @@
       }
 
       // Real statistics only
-      function renderStatistics() {
+      async function renderStatistics() {
         const totalClicks = savedLinks.reduce(
           (total, link) => total + (Number(link.clicks) || 0),
           0,
@@ -287,8 +287,18 @@
         $("activeLinks").textContent = activeCount.toLocaleString();
         $("expiringSoon").textContent = expiringCount.toLocaleString();
 
-        // Unique visitor tracking is not yet implemented by the backend.
-        $("uniqueVisitors").textContent = "N/A";
+        // Load the real distinct visitor count from the backend.
+        try {
+          const visitorStats = await apiRequest(
+            "/api/analytics/unique-visitors",
+          );
+          $("uniqueVisitors").textContent = Number(
+            visitorStats.unique_visitors,
+          ).toLocaleString();
+        } catch (error) {
+          console.error("Failed to load unique visitor count:", error);
+          $("uniqueVisitors").textContent = "—";
+        }
       }
 
       // Empty and error states

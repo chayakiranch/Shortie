@@ -6,3 +6,4 @@ pwdlib[argon2]
 email-validator
 python-dotenv
 python-multipart
+dnspython>=2.6.1
