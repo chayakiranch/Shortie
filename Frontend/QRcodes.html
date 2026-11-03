@@ -212,7 +212,7 @@
     </div>
 
     <script>
-      const API_URL = "http://127.0.0.1:8000";
+      const API_BASE = window.location.origin;
       const token = sessionStorage.getItem("shortie_token");
 
       const $ = (id) => document.getElementById(id);

@@ -1,57 +1,263 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Domains | Shortie</title><link rel="stylesheet" href="Domains.css">
-</head>
-<body>
-  <aside class="sidebar">
-    <h2>Shortie</h2><nav>
-      <a href="Dashboard.html">Links</a><a href="ShortenURL.html">Shorten URL</a><a href="Analytics.html">Analytics</a><a href="Campaigns.html">Campaigns</a><a href="QRcodes.html">QR codes</a><a class="active" href="Domains.html">Domains</a><a href="APIKeys.html">API keys</a><a href="Settings.html">Settings</a>
-    </nav>
-    <div class="account"><div class="avatar" id="avatar">S</div><div><strong id="userName">Shortie user</strong><small id="userEmail"></small></div></div><button class="logout" id="logoutBtn">Log out</button>
-  </aside>
-  <main class="main">
-    <header class="page-head"><div><h1>Domains</h1><p>Connect and verify a domain you own to use for Shortie links.</p></div><button class="btn secondary" id="refreshBtn">Refresh</button></header>
-    <section class="notice"><strong>Before you start</strong><p>Add your domain, publish the TXT record shown below, and verify ownership. DNS verification alone does not route traffic to Shortie; your DNS and hosting/proxy must also point to the running service.</p></section>
-    <section class="card add-card"><h2>Add a domain</h2><form id="addForm"><label for="domainInput">Domain name</label><div class="add-row"><input id="domainInput" name="domain" placeholder="links.example.com" autocomplete="url" required><button class="btn primary" type="submit">Add domain</button></div><small>Enter a domain or subdomain without a URL path.</small></form></section>
-    <section class="card"><div class="section-head"><div><h2>Your domains</h2><p>Only domains saved to your account are shown.</p></div><span id="domainCount" class="count">0 domains</span></div><div id="message" class="message" role="status" hidden></div><div id="emptyState" class="empty"><strong>No domains added yet</strong><p>Add a domain above to see its DNS setup instructions here.</p></div><div id="domainList" class="domain-list"></div></section>
-    <p class="footnote">Domain records are stored per account. Never add a domain you do not control.</p>
-  </main>
-<script>
-(() => {
-  const API = (window.SHORTIE_API_BASE || 'http://127.0.0.1:8000').replace(/\/$/, '');
-  const token = sessionStorage.getItem('shortie_token');
-  const list = document.getElementById('domainList');
-  const msg = document.getElementById('message');
-  let domains = [];
-  if (!token) { show('Your session is missing or expired. Please log in again.', 'error'); }
-  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  async function request(path, options={}) {
-    const res = await fetch(API + path, { ...options, headers: { 'Authorization': `Bearer ${token}`, ...(options.body ? {'Content-Type':'application/json'} : {}), ...(options.headers||{}) }});
-    let data={}; try { data=await res.json(); } catch {}
-    if (!res.ok) {
-      const detail = data.detail || data.message;
-      if (res.status === 405) throw new Error('The server rejected domain creation (405). Restart the updated FastAPI backend and open this page from your frontend server, not from a different server.');
-      if (res.status === 401) throw new Error('Your session expired. Log in again and reopen Domains.');
-      throw new Error(detail || `Request failed (${res.status})`);
-    }
-    return data;
-  }
-  function show(text, type='success') { msg.textContent=text; msg.className='message '+type; msg.hidden=false; }
-  function statusLabel(d) { return d.status === 'verified' ? 'Verified' : d.status === 'failed' ? 'Failed' : 'Pending verification'; }
-  function render() {
-    document.getElementById('domainCount').textContent = `${domains.length} ${domains.length===1?'domain':'domains'}`;
-    document.getElementById('emptyState').hidden = domains.length>0;
-    list.innerHTML = domains.map(d => `<article class="domain-item"><div class="domain-top"><div class="domain-name"><h3>${esc(d.domain)}</h3><span class="badge ${d.status==='verified'?'verified':'pending'}">${esc(statusLabel(d))}</span>${d.is_default?'<span class="badge default">Default</span>':''}</div><button class="btn danger-outline" data-action="delete" data-id="${esc(d.id)}">Remove</button></div><p class="meta">Added ${esc(new Date(d.created_at).toLocaleDateString())}${d.verified_at?' · Verified '+esc(new Date(d.verified_at).toLocaleDateString()):''}</p><details class="dns-details" open><summary>DNS verification instructions</summary><p>Create this TXT record at your DNS provider. DNS changes may take time to propagate.</p><div class="dns-grid"><div><label>Record type</label><code>TXT</code></div><div><label>Host / Name</label><code>_shortie</code></div><div class="token-field"><label>Value</label><code>${esc(d.verification_token)}</code><button class="btn small secondary" data-action="copy" data-value="${esc(d.verification_token)}">Copy</button></div></div><p class="dns-target">After publishing the record, click Verify domain. Verification checks the TXT record at <code>_shortie.${esc(d.domain)}</code>.</p><div class="item-actions"><button class="btn primary" data-action="verify" data-id="${esc(d.id)}">Verify domain</button>${d.status==='verified'&&!d.is_default?`<button class="btn secondary" data-action="default" data-id="${esc(d.id)}">Set as default</button>`:''}</div></details></article>`).join('');
-  }
-  async function load() { if (!token) return; list.innerHTML='<p class="loading">Loading domains…</p>'; try { const data=await request('/api/domains'); domains=data.domains||[]; render(); } catch(e) { list.innerHTML=''; show(e.message,'error'); } }
-  document.getElementById('addForm').addEventListener('submit', async e=>{e.preventDefault(); const button=e.submitter; button.disabled=true; try { const data=await request('/api/domains/create',{method:'POST',body:JSON.stringify({domain:document.getElementById('domainInput').value.trim()})}); document.getElementById('domainInput').value=''; show(data.message||'Domain added.'); await load(); } catch(err){show(err.message,'error');} finally{button.disabled=false;} });
-  list.addEventListener('click', async e=>{const b=e.target.closest('button[data-action]'); if(!b)return; const {action,id,value}=b.dataset; if(action==='copy'){try{await navigator.clipboard.writeText(value);show('TXT value copied.');}catch{show('Copy failed; select and copy the TXT value manually.','error');}return;} if(action==='delete'&&!confirm('Remove this domain from your Shortie account?'))return; b.disabled=true; try { if(action==='verify'){const d=await request(`/api/domains/${encodeURIComponent(id)}/verify`,{method:'POST'});show(d.message||'Domain verified.');} else if(action==='default'){const d=await request(`/api/domains/${encodeURIComponent(id)}/default`,{method:'POST'});show(d.message||'Default domain updated.');} else if(action==='delete'){const d=await request(`/api/domains/${encodeURIComponent(id)}`,{method:'DELETE'});show(d.message||'Domain removed.');} await load(); }catch(err){show(err.message,'error');}finally{b.disabled=false;} });
-  document.getElementById('refreshBtn').addEventListener('click',load);
-  document.getElementById('logoutBtn').addEventListener('click',()=>{sessionStorage.removeItem('shortie_token');location.href='login.html';});
-  request('/api/auth/me').then(d=>{const u=d.user||{};document.getElementById('userName').textContent=u.full_name||'Shortie user';document.getElementById('userEmail').textContent=u.email||'';document.getElementById('avatar').textContent=(u.full_name||'S').trim().charAt(0).toUpperCase();}).catch(()=>{});
-  load();
-})();
-</script>
-</body></html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Domains | Shortie</title>
+    <link rel="stylesheet" href="Domains.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <h2>Shortie</h2>
+      <nav>
+        <a href="Dashboard.html">Links</a
+        ><a href="ShortenURL.html">Shorten URL</a
+        ><a href="Analytics.html">Analytics</a
+        ><a href="Campaigns.html">Campaigns</a
+        ><a href="QRcodes.html">QR codes</a
+        ><a class="active" href="Domains.html">Domains</a
+        ><a href="APIKeys.html">API keys</a><a href="Settings.html">Settings</a>
+      </nav>
+      <div class="account">
+        <div class="avatar" id="avatar">S</div>
+        <div>
+          <strong id="userName">Shortie user</strong
+          ><small id="userEmail"></small>
+        </div>
+      </div>
+      <button class="logout" id="logoutBtn">Log out</button>
+    </aside>
+    <main class="main">
+      <header class="page-head">
+        <div>
+          <h1>Domains</h1>
+          <p>Connect and verify a domain you own to use for Shortie links.</p>
+        </div>
+        <button class="btn secondary" id="refreshBtn">Refresh</button>
+      </header>
+      <section class="notice">
+        <strong>Before you start</strong>
+        <p>
+          Add your domain, publish the TXT record shown below, and verify
+          ownership. DNS verification alone does not route traffic to Shortie;
+          your DNS and hosting/proxy must also point to the running service.
+        </p>
+      </section>
+      <section class="card add-card">
+        <h2>Add a domain</h2>
+        <form id="addForm">
+          <label for="domainInput">Domain name</label>
+          <div class="add-row">
+            <input
+              id="domainInput"
+              name="domain"
+              placeholder="links.example.com"
+              autocomplete="url"
+              required
+            /><button class="btn primary" type="submit">Add domain</button>
+          </div>
+          <small>Enter a domain or subdomain without a URL path.</small>
+        </form>
+      </section>
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <h2>Your domains</h2>
+            <p>Only domains saved to your account are shown.</p>
+          </div>
+          <span id="domainCount" class="count">0 domains</span>
+        </div>
+        <div id="message" class="message" role="status" hidden></div>
+        <div id="emptyState" class="empty">
+          <strong>No domains added yet</strong>
+          <p>Add a domain above to see its DNS setup instructions here.</p>
+        </div>
+        <div id="domainList" class="domain-list"></div>
+      </section>
+      <p class="footnote">
+        Domain records are stored per account. Never add a domain you do not
+        control.
+      </p>
+    </main>
+    <script>
+      (() => {
+        const API_BASE = (
+          window.SHORTIE_API_BASE || window.location.origin
+        ).replace(/\/$/, "");
+        const token = sessionStorage.getItem("shortie_token");
+        const list = document.getElementById("domainList");
+        const msg = document.getElementById("message");
+        let domains = [];
+        if (!token) {
+          show(
+            "Your session is missing or expired. Please log in again.",
+            "error",
+          );
+        }
+        const esc = (s) =>
+          String(s ?? "").replace(
+            /[&<>"']/g,
+            (c) =>
+              ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                '"': "&quot;",
+                "'": "&#39;",
+              })[c],
+          );
+        async function request(path, options = {}) {
+          const res = await fetch(API + path, {
+            ...options,
+            headers: {
+              Authorization: `Bearer ${token}`,
+              ...(options.body ? { "Content-Type": "application/json" } : {}),
+              ...(options.headers || {}),
+            },
+          });
+          let data = {};
+          try {
+            data = await res.json();
+          } catch {}
+          if (!res.ok) {
+            const detail = data.detail || data.message;
+            if (res.status === 405)
+              throw new Error(
+                "The server rejected domain creation (405). Restart the updated FastAPI backend and open this page from your frontend server, not from a different server.",
+              );
+            if (res.status === 401)
+              throw new Error(
+                "Your session expired. Log in again and reopen Domains.",
+              );
+            throw new Error(detail || `Request failed (${res.status})`);
+          }
+          return data;
+        }
+        function show(text, type = "success") {
+          msg.textContent = text;
+          msg.className = "message " + type;
+          msg.hidden = false;
+        }
+        function statusLabel(d) {
+          return d.status === "verified"
+            ? "Verified"
+            : d.status === "failed"
+              ? "Failed"
+              : "Pending verification";
+        }
+        function render() {
+          document.getElementById("domainCount").textContent =
+            `${domains.length} ${domains.length === 1 ? "domain" : "domains"}`;
+          document.getElementById("emptyState").hidden = domains.length > 0;
+          list.innerHTML = domains
+            .map(
+              (d) =>
+                `<article class="domain-item"><div class="domain-top"><div class="domain-name"><h3>${esc(d.domain)}</h3><span class="badge ${d.status === "verified" ? "verified" : "pending"}">${esc(statusLabel(d))}</span>${d.is_default ? '<span class="badge default">Default</span>' : ""}</div><button class="btn danger-outline" data-action="delete" data-id="${esc(d.id)}">Remove</button></div><p class="meta">Added ${esc(new Date(d.created_at).toLocaleDateString())}${d.verified_at ? " · Verified " + esc(new Date(d.verified_at).toLocaleDateString()) : ""}</p><details class="dns-details" open><summary>DNS verification instructions</summary><p>Create this TXT record at your DNS provider. DNS changes may take time to propagate.</p><div class="dns-grid"><div><label>Record type</label><code>TXT</code></div><div><label>Host / Name</label><code>_shortie</code></div><div class="token-field"><label>Value</label><code>${esc(d.verification_token)}</code><button class="btn small secondary" data-action="copy" data-value="${esc(d.verification_token)}">Copy</button></div></div><p class="dns-target">After publishing the record, click Verify domain. Verification checks the TXT record at <code>_shortie.${esc(d.domain)}</code>.</p><div class="item-actions"><button class="btn primary" data-action="verify" data-id="${esc(d.id)}">Verify domain</button>${d.status === "verified" && !d.is_default ? `<button class="btn secondary" data-action="default" data-id="${esc(d.id)}">Set as default</button>` : ""}</div></details></article>`,
+            )
+            .join("");
+        }
+        async function load() {
+          if (!token) return;
+          list.innerHTML = '<p class="loading">Loading domains…</p>';
+          try {
+            const data = await request("/api/domains");
+            domains = data.domains || [];
+            render();
+          } catch (e) {
+            list.innerHTML = "";
+            show(e.message, "error");
+          }
+        }
+        document
+          .getElementById("addForm")
+          .addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const button = e.submitter;
+            button.disabled = true;
+            try {
+              const data = await request("/api/domains/create", {
+                method: "POST",
+                body: JSON.stringify({
+                  domain: document.getElementById("domainInput").value.trim(),
+                }),
+              });
+              document.getElementById("domainInput").value = "";
+              show(data.message || "Domain added.");
+              await load();
+            } catch (err) {
+              show(err.message, "error");
+            } finally {
+              button.disabled = false;
+            }
+          });
+        list.addEventListener("click", async (e) => {
+          const b = e.target.closest("button[data-action]");
+          if (!b) return;
+          const { action, id, value } = b.dataset;
+          if (action === "copy") {
+            try {
+              await navigator.clipboard.writeText(value);
+              show("TXT value copied.");
+            } catch {
+              show(
+                "Copy failed; select and copy the TXT value manually.",
+                "error",
+              );
+            }
+            return;
+          }
+          if (
+            action === "delete" &&
+            !confirm("Remove this domain from your Shortie account?")
+          )
+            return;
+          b.disabled = true;
+          try {
+            if (action === "verify") {
+              const d = await request(
+                `/api/domains/${encodeURIComponent(id)}/verify`,
+                { method: "POST" },
+              );
+              show(d.message || "Domain verified.");
+            } else if (action === "default") {
+              const d = await request(
+                `/api/domains/${encodeURIComponent(id)}/default`,
+                { method: "POST" },
+              );
+              show(d.message || "Default domain updated.");
+            } else if (action === "delete") {
+              const d = await request(
+                `/api/domains/${encodeURIComponent(id)}`,
+                { method: "DELETE" },
+              );
+              show(d.message || "Domain removed.");
+            }
+            await load();
+          } catch (err) {
+            show(err.message, "error");
+          } finally {
+            b.disabled = false;
+          }
+        });
+        document.getElementById("refreshBtn").addEventListener("click", load);
+        document.getElementById("logoutBtn").addEventListener("click", () => {
+          sessionStorage.removeItem("shortie_token");
+          location.href = "login.html";
+        });
+        request("/api/auth/me")
+          .then((d) => {
+            const u = d.user || {};
+            document.getElementById("userName").textContent =
+              u.full_name || "Shortie user";
+            document.getElementById("userEmail").textContent = u.email || "";
+            document.getElementById("avatar").textContent = (u.full_name || "S")
+              .trim()
+              .charAt(0)
+              .toUpperCase();
+          })
+          .catch(() => {});
+        load();
+      })();
+    </script>
+  </body>
+</html>

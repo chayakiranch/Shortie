@@ -1,277 +1,385 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Settings | Shortie</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="Settings.css">
-</head>
-<body>
-  <div class="app-shell">
-    <aside class="sidebar">
-      <a class="brand" href="Dashboard.html">Shortie</a>
-      <nav class="nav" aria-label="Main navigation">
-        <a href="Dashboard.html">Links</a>
-        <a href="ShortenURL.html">Shorten URL</a>
-        <a href="Analytics.html">Analytics</a>
-        <a href="Campaigns.html">Campaigns</a>
-        <a href="QRcodes.html">QR codes</a>
-        <a href="Domains.html">Domains</a>
-        <a href="APIKeys.html">API keys</a>
-        <a class="active" href="Settings.html">Settings</a>
-      </nav>
-      <div class="sidebar-user">
-        <div class="avatar" id="userAvatar">—</div>
-        <div class="user-copy">
-          <strong id="sidebarName">Loading…</strong>
-          <span id="sidebarEmail"></span>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Settings | Shortie</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="Settings.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="Dashboard.html">Shortie</a>
+        <nav class="nav" aria-label="Main navigation">
+          <a href="Dashboard.html">Links</a>
+          <a href="ShortenURL.html">Shorten URL</a>
+          <a href="Analytics.html">Analytics</a>
+          <a href="Campaigns.html">Campaigns</a>
+          <a href="QRcodes.html">QR codes</a>
+          <a href="Domains.html">Domains</a>
+          <a href="APIKeys.html">API keys</a>
+          <a class="active" href="Settings.html">Settings</a>
+        </nav>
+        <div class="sidebar-user">
+          <div class="avatar" id="userAvatar">—</div>
+          <div class="user-copy">
+            <strong id="sidebarName">Loading…</strong>
+            <span id="sidebarEmail"></span>
+          </div>
+          <button id="logoutButton" class="logout" type="button">
+            Log out
+          </button>
         </div>
-        <button id="logoutButton" class="logout" type="button">Log out</button>
-      </div>
-    </aside>
+      </aside>
 
-    <main class="main">
-      <header class="page-header">
-        <h1>Settings</h1>
-        <p class="subtitle">Manage your profile, security and link defaults.</p>
-      </header>
+      <main class="main">
+        <header class="page-header">
+          <h1>Settings</h1>
+          <p class="subtitle">
+            Manage your profile, security and link defaults.
+          </p>
+        </header>
 
-      <div id="pageMessage" class="message" role="status" aria-live="polite" hidden></div>
+        <div
+          id="pageMessage"
+          class="message"
+          role="status"
+          aria-live="polite"
+          hidden
+        ></div>
 
-      <div class="settings-grid">
-        <section class="settings-card">
-          <h2>Profile</h2>
-          <form id="profileForm" class="form">
-            <label for="fullName">Full name</label>
-            <input id="fullName" name="fullName" type="text" minlength="2" maxlength="100" autocomplete="name" required>
-            <label for="email">Email</label>
-            <input id="email" name="email" type="email" readonly aria-describedby="emailNote">
-            <small id="emailNote" class="field-note">Your email address cannot be changed here.</small>
-            <div class="form-actions">
-              <button type="submit" class="primary" id="saveProfile">Save profile</button>
+        <div class="settings-grid">
+          <section class="settings-card">
+            <h2>Profile</h2>
+            <form id="profileForm" class="form">
+              <label for="fullName">Full name</label>
+              <input
+                id="fullName"
+                name="fullName"
+                type="text"
+                minlength="2"
+                maxlength="100"
+                autocomplete="name"
+                required
+              />
+              <label for="email">Email</label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                readonly
+                aria-describedby="emailNote"
+              />
+              <small id="emailNote" class="field-note"
+                >Your email address cannot be changed here.</small
+              >
+              <div class="form-actions">
+                <button type="submit" class="primary" id="saveProfile">
+                  Save profile
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <section class="settings-card">
+            <h2>Security</h2>
+            <form id="passwordForm" class="form">
+              <label for="currentPassword">Current password</label>
+              <input
+                id="currentPassword"
+                type="password"
+                autocomplete="current-password"
+                required
+              />
+              <label for="newPassword">New password</label>
+              <input
+                id="newPassword"
+                type="password"
+                minlength="8"
+                maxlength="128"
+                autocomplete="new-password"
+                placeholder="At least 8 characters"
+                required
+              />
+              <div class="form-actions">
+                <button type="submit" class="secondary" id="changePassword">
+                  Update password
+                </button>
+              </div>
+            </form>
+          </section>
+
+          <section class="settings-card">
+            <h2>Link defaults</h2>
+            <div class="preferences">
+              <label class="check-row"
+                ><input id="filterBots" type="checkbox" checked /><span
+                  >Filter known bots in analytics</span
+                ></label
+              >
+              <label class="check-row"
+                ><input id="checkMalicious" type="checkbox" /><span
+                  >Check destinations for malicious URLs</span
+                ></label
+              >
             </div>
-          </form>
-        </section>
-
-        <section class="settings-card">
-          <h2>Security</h2>
-          <form id="passwordForm" class="form">
-            <label for="currentPassword">Current password</label>
-            <input id="currentPassword" type="password" autocomplete="current-password" required>
-            <label for="newPassword">New password</label>
-            <input id="newPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="At least 8 characters" required>
+            <label class="standalone-label" for="defaultExpiry"
+              >Default expiry</label
+            >
+            <select id="defaultExpiry">
+              <option value="never">Never</option>
+              <option value="7">7 days</option>
+              <option value="30">30 days</option>
+              <option value="90">90 days</option>
+            </select>
             <div class="form-actions">
-              <button type="submit" class="secondary" id="changePassword">Update password</button>
+              <button type="button" class="primary" id="saveLinkDefaults">
+                Save link defaults
+              </button>
             </div>
-          </form>
-        </section>
+          </section>
 
-        <section class="settings-card">
-          <h2>Link defaults</h2>
-          <div class="preferences">
-            <label class="check-row"><input id="filterBots" type="checkbox" checked><span>Filter known bots in analytics</span></label>
-            <label class="check-row"><input id="checkMalicious" type="checkbox"><span>Check destinations for malicious URLs</span></label>
-          </div>
-          <label class="standalone-label" for="defaultExpiry">Default expiry</label>
-          <select id="defaultExpiry">
-            <option value="never">Never</option>
-            <option value="7">7 days</option>
-            <option value="30">30 days</option>
-            <option value="90">90 days</option>
-          </select>
-          <div class="form-actions">
-            <button type="button" class="primary" id="saveLinkDefaults">Save link defaults</button>
-          </div>
-        </section>
+          <section class="settings-card">
+            <h2>Notifications</h2>
+            <div class="preferences">
+              <label class="check-row"
+                ><input id="notifyExpiry" type="checkbox" checked /><span
+                  >Link expiring soon</span
+                ></label
+              >
+              <label class="check-row"
+                ><input id="notifyWeekly" type="checkbox" checked /><span
+                  >Weekly performance summary</span
+                ></label
+              >
+              <label class="check-row"
+                ><input id="notifyAbuse" type="checkbox" /><span
+                  >Abuse report alerts</span
+                ></label
+              >
+            </div>
+            <p class="subtle-note">
+              Notifications will be connected in a later step. These controls do
+              not send or schedule notifications yet.
+            </p>
+          </section>
 
-        <section class="settings-card">
-          <h2>Notifications</h2>
-          <div class="preferences">
-            <label class="check-row"><input id="notifyExpiry" type="checkbox" checked><span>Link expiring soon</span></label>
-            <label class="check-row"><input id="notifyWeekly" type="checkbox" checked><span>Weekly performance summary</span></label>
-            <label class="check-row"><input id="notifyAbuse" type="checkbox"><span>Abuse report alerts</span></label>
-          </div>
-          <p class="subtle-note">Notifications will be connected in a later step. These controls do not send or schedule notifications yet.</p>
-        </section>
+          <section class="settings-card delete-card">
+            <h2>Delete account</h2>
+            <p>Permanently removes your links, QR codes and analytics.</p>
+            <button
+              class="secondary danger-button"
+              id="deleteAccount"
+              type="button"
+            >
+              Delete account
+            </button>
+            <p class="subtle-note">
+              This permanently deletes your account, links, QR code
+              configurations and click analytics. This cannot be undone.
+            </p>
+          </section>
+        </div>
+      </main>
+    </div>
 
-        <section class="settings-card delete-card">
-          <h2>Delete account</h2>
-          <p>Permanently removes your links, QR codes and analytics.</p>
-          <button class="secondary danger-button" id="deleteAccount" type="button">Delete account</button>
-          <p class="subtle-note">This permanently deletes your account, links, QR code configurations and click analytics. This cannot be undone.</p>
-        </section>
-      </div>
-    </main>
-  </div>
+    <script>
+      (() => {
+        const API_URL = window.location.origin;
+        const token = sessionStorage.getItem("shortie_token");
+        const $ = (id) => document.getElementById(id);
+        let messageTimer;
 
-<script>
-(() => {
-  const API = 'http://127.0.0.1:8000';
-  const token = sessionStorage.getItem('shortie_token');
-  const $ = id => document.getElementById(id);
-  let messageTimer;
+        if (!token) {
+          location.replace("login.html");
+          return;
+        }
 
-  if (!token) {
-    location.replace('login.html');
-    return;
-  }
+        function showMessage(text, type = "success") {
+          const box = $("pageMessage");
+          box.textContent = text;
+          box.className = `message ${type}`;
+          box.hidden = false;
+          clearTimeout(messageTimer);
+          messageTimer = setTimeout(() => {
+            box.hidden = true;
+          }, 5500);
+        }
 
-  function showMessage(text, type = 'success') {
-    const box = $('pageMessage');
-    box.textContent = text;
-    box.className = `message ${type}`;
-    box.hidden = false;
-    clearTimeout(messageTimer);
-    messageTimer = setTimeout(() => { box.hidden = true; }, 5500);
-  }
+        async function api(path, options = {}) {
+          const response = await fetch(API + path, {
+            ...options,
+            headers: {
+              Authorization: `Bearer ${token}`,
+              ...(options.body ? { "Content-Type": "application/json" } : {}),
+              ...(options.headers || {}),
+            },
+          });
+          const data = await response.json().catch(() => ({}));
+          if (response.status === 401) {
+            sessionStorage.removeItem("shortie_token");
+            location.replace("login.html");
+            throw new Error("Your session expired. Please sign in again.");
+          }
+          if (!response.ok)
+            throw new Error(data.detail || data.message || "Request failed.");
+          return data;
+        }
 
-  async function api(path, options = {}) {
-    const response = await fetch(API + path, {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-        ...(options.headers || {})
-      }
-    });
-    const data = await response.json().catch(() => ({}));
-    if (response.status === 401) {
-      sessionStorage.removeItem('shortie_token');
-      location.replace('login.html');
-      throw new Error('Your session expired. Please sign in again.');
-    }
-    if (!response.ok) throw new Error(data.detail || data.message || 'Request failed.');
-    return data;
-  }
+        async function loadProfile() {
+          try {
+            const data = await api("/api/auth/me");
+            const user = data.user || data;
+            $("fullName").value = user.full_name || "";
+            $("email").value = user.email || "";
+            $("sidebarName").textContent = user.full_name || "Shortie user";
+            $("sidebarEmail").textContent = user.email || "";
+            $("userAvatar").textContent = (user.full_name || "?")
+              .trim()
+              .charAt(0)
+              .toUpperCase();
+          } catch (error) {
+            showMessage(error.message, "error");
+          }
+        }
 
-  async function loadProfile() {
-    try {
-      const data = await api('/api/auth/me');
-      const user = data.user || data;
-      $('fullName').value = user.full_name || '';
-      $('email').value = user.email || '';
-      $('sidebarName').textContent = user.full_name || 'Shortie user';
-      $('sidebarEmail').textContent = user.email || '';
-      $('userAvatar').textContent = (user.full_name || '?').trim().charAt(0).toUpperCase();
-    } catch (error) {
-      showMessage(error.message, 'error');
-    }
-  }
+        $("profileForm").addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const button = $("saveProfile");
+          button.disabled = true;
+          button.textContent = "Saving…";
+          try {
+            const data = await api("/api/settings/profile", {
+              method: "PATCH",
+              body: JSON.stringify({ full_name: $("fullName").value.trim() }),
+            });
+            const user = data.user || {};
+            const name = user.full_name || $("fullName").value.trim();
+            $("sidebarName").textContent = name;
+            $("userAvatar").textContent = name.charAt(0).toUpperCase() || "?";
+            showMessage(data.message || "Profile updated successfully.");
+          } catch (error) {
+            showMessage(error.message, "error");
+          } finally {
+            button.disabled = false;
+            button.textContent = "Save profile";
+          }
+        });
 
-  $('profileForm').addEventListener('submit', async event => {
-    event.preventDefault();
-    const button = $('saveProfile');
-    button.disabled = true;
-    button.textContent = 'Saving…';
-    try {
-      const data = await api('/api/settings/profile', {
-        method: 'PATCH',
-        body: JSON.stringify({ full_name: $('fullName').value.trim() })
-      });
-      const user = data.user || {};
-      const name = user.full_name || $('fullName').value.trim();
-      $('sidebarName').textContent = name;
-      $('userAvatar').textContent = name.charAt(0).toUpperCase() || '?';
-      showMessage(data.message || 'Profile updated successfully.');
-    } catch (error) {
-      showMessage(error.message, 'error');
-    } finally {
-      button.disabled = false;
-      button.textContent = 'Save profile';
-    }
-  });
+        $("passwordForm").addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const currentPassword = $("currentPassword").value;
+          const newPassword = $("newPassword").value;
+          if (newPassword.length < 8)
+            return showMessage(
+              "New password must be at least 8 characters.",
+              "error",
+            );
+          if (currentPassword === newPassword)
+            return showMessage(
+              "Choose a password different from your current password.",
+              "error",
+            );
 
-  $('passwordForm').addEventListener('submit', async event => {
-    event.preventDefault();
-    const currentPassword = $('currentPassword').value;
-    const newPassword = $('newPassword').value;
-    if (newPassword.length < 8) return showMessage('New password must be at least 8 characters.', 'error');
-    if (currentPassword === newPassword) return showMessage('Choose a password different from your current password.', 'error');
+          const button = $("changePassword");
+          button.disabled = true;
+          button.textContent = "Updating…";
+          try {
+            const data = await api("/api/settings/password", {
+              method: "PATCH",
+              body: JSON.stringify({
+                current_password: currentPassword,
+                new_password: newPassword,
+              }),
+            });
+            $("passwordForm").reset();
+            showMessage(data.message || "Password updated successfully.");
+          } catch (error) {
+            showMessage(error.message, "error");
+          } finally {
+            button.disabled = false;
+            button.textContent = "Update password";
+          }
+        });
 
-    const button = $('changePassword');
-    button.disabled = true;
-    button.textContent = 'Updating…';
-    try {
-      const data = await api('/api/settings/password', {
-        method: 'PATCH',
-        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
-      });
-      $('passwordForm').reset();
-      showMessage(data.message || 'Password updated successfully.');
-    } catch (error) {
-      showMessage(error.message, 'error');
-    } finally {
-      button.disabled = false;
-      button.textContent = 'Update password';
-    }
-  });
+        $("logoutButton").addEventListener("click", () => {
+          sessionStorage.removeItem("shortie_token");
+          location.replace("login.html");
+        });
 
-  $('logoutButton').addEventListener('click', () => {
-    sessionStorage.removeItem('shortie_token');
-    location.replace('login.html');
-  });
+        async function loadLinkDefaults() {
+          try {
+            const data = await api("/api/settings/link-defaults");
+            $("filterBots").checked = Boolean(data.filter_known_bots);
+            $("checkMalicious").checked = Boolean(data.check_malicious_urls);
+            $("defaultExpiry").value = data.default_expiry || "never";
+          } catch (error) {
+            showMessage(error.message, "error");
+          }
+        }
 
-  async function loadLinkDefaults() {
-    try {
-      const data = await api('/api/settings/link-defaults');
-      $('filterBots').checked = Boolean(data.filter_known_bots);
-      $('checkMalicious').checked = Boolean(data.check_malicious_urls);
-      $('defaultExpiry').value = data.default_expiry || 'never';
-    } catch (error) {
-      showMessage(error.message, 'error');
-    }
-  }
+        $("saveLinkDefaults").addEventListener("click", async () => {
+          const button = $("saveLinkDefaults");
+          button.disabled = true;
+          button.textContent = "Saving…";
+          try {
+            const data = await api("/api/settings/link-defaults", {
+              method: "PATCH",
+              body: JSON.stringify({
+                filter_known_bots: $("filterBots").checked,
+                check_malicious_urls: $("checkMalicious").checked,
+                default_expiry: $("defaultExpiry").value,
+              }),
+            });
+            showMessage(data.message || "Link defaults saved successfully.");
+          } catch (error) {
+            showMessage(error.message, "error");
+          } finally {
+            button.disabled = false;
+            button.textContent = "Save link defaults";
+          }
+        });
 
-  $('saveLinkDefaults').addEventListener('click', async () => {
-    const button = $('saveLinkDefaults');
-    button.disabled = true;
-    button.textContent = 'Saving…';
-    try {
-      const data = await api('/api/settings/link-defaults', {
-        method: 'PATCH',
-        body: JSON.stringify({
-          filter_known_bots: $('filterBots').checked,
-          check_malicious_urls: $('checkMalicious').checked,
-          default_expiry: $('defaultExpiry').value
-        })
-      });
-      showMessage(data.message || 'Link defaults saved successfully.');
-    } catch (error) {
-      showMessage(error.message, 'error');
-    } finally {
-      button.disabled = false;
-      button.textContent = 'Save link defaults';
-    }
-  });
+        $("deleteAccount").addEventListener("click", async () => {
+          const first = confirm(
+            "Delete your Shortie account and all associated links, QR configurations and click analytics? This cannot be undone.",
+          );
+          if (!first) return;
+          const confirmation = prompt(
+            "Type DELETE to permanently delete your account.",
+          );
+          if (confirmation !== "DELETE") {
+            showMessage(
+              "Account deletion cancelled. Type DELETE exactly to confirm.",
+              "error",
+            );
+            return;
+          }
+          const button = $("deleteAccount");
+          button.disabled = true;
+          button.textContent = "Deleting…";
+          try {
+            const data = await api("/api/settings/account", {
+              method: "DELETE",
+            });
+            sessionStorage.removeItem("shortie_token");
+            alert(data.message || "Account deleted.");
+            location.replace("signup.html");
+          } catch (error) {
+            showMessage(error.message, "error");
+            button.disabled = false;
+            button.textContent = "Delete account";
+          }
+        });
 
-  $('deleteAccount').addEventListener('click', async () => {
-    const first = confirm('Delete your Shortie account and all associated links, QR configurations and click analytics? This cannot be undone.');
-    if (!first) return;
-    const confirmation = prompt('Type DELETE to permanently delete your account.');
-    if (confirmation !== 'DELETE') {
-      showMessage('Account deletion cancelled. Type DELETE exactly to confirm.', 'error');
-      return;
-    }
-    const button = $('deleteAccount');
-    button.disabled = true;
-    button.textContent = 'Deleting…';
-    try {
-      const data = await api('/api/settings/account', { method: 'DELETE' });
-      sessionStorage.removeItem('shortie_token');
-      alert(data.message || 'Account deleted.');
-      location.replace('signup.html');
-    } catch (error) {
-      showMessage(error.message, 'error');
-      button.disabled = false;
-      button.textContent = 'Delete account';
-    }
-  });
-
-  loadProfile();
-  loadLinkDefaults();
-})();
-</script>
-</body>
+        loadProfile();
+        loadLinkDefaults();
+      })();
+    </script>
+  </body>
 </html>
