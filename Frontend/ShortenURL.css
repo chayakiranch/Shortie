@@ -768,3 +768,9 @@ code {
     flex: 1;
   }
 }
+
+/* ===== NEW: 44px tap targets for pagination buttons ===== */
+#previousPage,
+#nextPage {
+  min-height: 44px;
+}

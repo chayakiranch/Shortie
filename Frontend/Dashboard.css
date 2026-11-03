@@ -574,32 +574,58 @@ input:focus-visible {
 }
 
 @media (max-width: 700px) {
+  /* NEW: stack the top bar above the content */
+  .dashboard {
+    display: block;
+  }
+
+  /* CHANGED: sidebar becomes a top bar with a scrollable menu */
   .sidebar {
-    width: 76px;
-    padding: 18px 9px;
+    position: static;
+    width: auto;
+    max-width: 100%;
+    padding: 12px 14px;
+    overflow: visible;
   }
 
   .logo {
-    font-size: 17px;
-    letter-spacing: -0.4px;
-    overflow-wrap: anywhere;
+    margin: 0 0 10px;
+    font-size: 20px;
+  }
+
+  .sidebar-nav {
+    flex-direction: row;
+    gap: 6px;
+    padding-bottom: 6px;
+    overflow-x: auto;
   }
 
   .nav-link {
-    padding: 11px 7px;
-    font-size: 11px;
-    text-align: center;
-    overflow-wrap: anywhere;
+    flex: 0 0 auto;
+    padding: 10px 14px;
+    font-size: 13px;
+    white-space: nowrap;
   }
 
-  .sidebar-user .user-details,
-  .logout-button {
-    font-size: 10px;
+  .sidebar-user {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 10px;
+    padding-top: 10px;
   }
 
   .user-info {
-    flex-direction: column;
-    align-items: flex-start;
+    min-width: 0;
+  }
+
+  .logout-button {
+    flex: none;
+    width: auto;
+    min-height: 44px;
+    padding: 0 16px;
+    font-size: 13px;
   }
 
   .user-avatar {
@@ -608,7 +634,7 @@ input:focus-visible {
   }
 
   .main-content {
-    margin-left: 76px;
+    margin-left: 0; /* CHANGED: was 76px */
     padding: 18px 12px;
   }
 

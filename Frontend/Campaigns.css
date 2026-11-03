@@ -628,3 +628,18 @@ legend {
     align-items: flex-start;
   }
 }
+
+/* ===== NEW: mobile top bar with scrollable menu ===== */
+@media (max-width: 620px) {
+  .sidebar nav {
+    display: flex;
+    gap: 6px;
+    padding-bottom: 6px;
+    overflow-x: auto;
+  }
+
+  .sidebar nav a {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+}

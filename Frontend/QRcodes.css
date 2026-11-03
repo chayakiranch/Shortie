@@ -714,3 +714,47 @@ button {
     padding: 18px;
   }
 }
+
+/* ===== NEW: mobile top bar with scrollable menu + bigger tap targets ===== */
+@media (max-width: 760px) {
+  .logo {
+    margin-bottom: 10px;
+  }
+
+  .sidebar-nav {
+    display: flex;
+    flex-direction: row;
+    gap: 6px;
+    padding-bottom: 6px;
+    overflow-x: auto;
+  }
+
+  .sidebar-nav .nav-link {
+    flex: 0 0 auto;
+    padding: 10px 14px;
+    white-space: nowrap;
+  }
+
+  .sidebar-user {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+
+  .logout-button {
+    flex: none;
+    width: auto;
+    min-height: 44px;
+    margin-top: 0;
+    padding: 0 16px;
+  }
+}
+
+/* NEW: 44px tap targets for color pickers and file input */
+input[type="color"],
+input[type="file"] {
+  min-height: 44px;
+}

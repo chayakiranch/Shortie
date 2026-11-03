@@ -614,3 +614,41 @@ tbody tr:last-child td {
     width: 100%;
   }
 }
+
+/* ===== NEW: mobile top bar with scrollable menu ===== */
+@media (max-width: 600px) {
+  .logo {
+    margin-bottom: 10px;
+  }
+
+  .sidebar-nav {
+    display: flex;
+    flex-direction: row;
+    gap: 6px;
+    padding-bottom: 6px;
+    overflow-x: auto;
+  }
+
+  .sidebar-nav .nav-link {
+    flex: 0 0 auto;
+    padding: 10px 14px;
+    white-space: nowrap;
+  }
+
+  .sidebar-user {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+
+  .logout-button {
+    flex: none;
+    width: auto;
+    min-height: 44px;
+    margin-top: 0;
+    padding: 0 16px;
+  }
+}

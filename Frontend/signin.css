@@ -250,3 +250,44 @@ body {
 .signin-text a:hover {
   color: #09694f;
 }
+
+/* ===== NEW: Responsive styles ===== */
+@media (max-width: 700px) {
+  /* Stack brand panel above the form */
+  .signup-page {
+    flex-direction: column;
+  }
+
+  .signup-left,
+  .signup-right {
+    width: 100%;
+    min-height: auto; /* NEW: remove the full-screen height on mobile */
+  }
+
+  .signup-left {
+    padding: 24px 20px;
+    gap: 14px;
+  }
+
+  .signup-logo {
+    font-size: 24px;
+  }
+
+  .signup-left-content h1 {
+    font-size: 28px;
+    margin-bottom: 10px;
+  }
+
+  .signup-left-content p {
+    font-size: 15px;
+  }
+
+  .signup-footer {
+    display: none;
+  }
+
+  .signup-right {
+    padding: 28px 20px 40px;
+    align-items: flex-start;
+  }
+}
