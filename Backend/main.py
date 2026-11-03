@@ -17,7 +17,7 @@ from bson import ObjectId
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -294,7 +294,7 @@ def generate_code(length: int = 7) -> str:
 
 @app.get("/")
 async def home():
-    return {"message": "Shortie API is running", "docs": "/docs"}
+     return FileResponse(FRONTEND_DIR / "index.html")
 
 
 @app.get("/health")
