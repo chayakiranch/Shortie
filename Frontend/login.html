@@ -32,7 +32,11 @@
             Welcome back. Enter your details to open your dashboard.
           </p>
 
-          <button class="google-button">Continue with Google</button>
+          <div
+            id="googleButtonContainer"
+            class="google-button-host"
+            aria-label="Continue with Google"
+          ></div>
 
           <div class="divider">
             <span></span>
@@ -71,8 +75,74 @@
       </section>
     </div>
 
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script>
       const API_URL = window.location.origin;
+
+      async function handleGoogleCredential(response) {
+        const termsAccepted =
+          document.getElementById("terms")?.checked ?? false;
+        try {
+          const authResponse = await fetch(`${API_URL}/api/auth/google`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              credential: response.credential,
+              terms_accepted: termsAccepted,
+            }),
+          });
+          const result = await authResponse.json();
+          if (!authResponse.ok) {
+            alert(result.detail || "Google sign-in failed");
+            return;
+          }
+          sessionStorage.setItem("shortie_token", result.access_token);
+          window.location.href = "Dashboard.html";
+        } catch (error) {
+          alert("Cannot connect to Shortie. Please try again.");
+        }
+      }
+
+      async function initializeGoogleSignIn() {
+        const host = document.getElementById("googleButtonContainer");
+        if (!host) return;
+        try {
+          const configResponse = await fetch(
+            `${API_URL}/api/auth/google/config`,
+          );
+          const config = await configResponse.json();
+          if (!config.enabled || !config.client_id) {
+            host.hidden = true;
+            return;
+          }
+          const waitForGoogle = () => {
+            if (!window.google?.accounts?.id) {
+              window.setTimeout(waitForGoogle, 100);
+              return;
+            }
+            google.accounts.id.initialize({
+              client_id: config.client_id,
+              callback: handleGoogleCredential,
+              auto_select: false,
+            });
+            google.accounts.id.renderButton(host, {
+              type: "standard",
+              theme: "outline",
+              size: "large",
+              shape: "rectangular",
+              text: "continue_with",
+              logo_alignment: "left",
+              width: Math.min(host.clientWidth || 360, 400),
+            });
+          };
+          waitForGoogle();
+        } catch (error) {
+          host.hidden = true;
+          console.error("Google sign-in could not be initialized", error);
+        }
+      }
+
+      initializeGoogleSignIn();
 
       document
         .getElementById("loginForm")

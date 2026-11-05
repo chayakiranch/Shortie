@@ -23,6 +23,8 @@ from pathlib import Path
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt.exceptions import InvalidTokenError
 from pwdlib import PasswordHash
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 from pydantic import BaseModel, EmailStr, Field, HttpUrl
 from pymongo import AsyncMongoClient, ReturnDocument
 from pymongo.errors import DuplicateKeyError
@@ -40,6 +42,7 @@ JWT_SECRET = os.getenv("JWT_SECRET")
 SHORTIE_BASE_URL = os.getenv(
     "SHORTIE_BASE_URL", "http://127.0.0.1:8000"
 ).rstrip("/")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
 
 if not MONGODB_URL or not JWT_SECRET:
     raise RuntimeError(
@@ -67,6 +70,7 @@ async def lifespan(app: FastAPI):
     await client.admin.command("ping")
 
     await users.create_index("email", unique=True)
+    await users.create_index("google_sub", unique=True, sparse=True)
     await domains.create_index([("owner_id", 1), ("domain", 1)], unique=True)
     await links.create_index("code", unique=True)
     await links.create_index([("owner_id", 1), ("created_at", -1)])
@@ -129,6 +133,11 @@ class SignupRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=128)
+
+
+class GoogleAuthRequest(BaseModel):
+    credential: str = Field(min_length=20, max_length=10000)
+    terms_accepted: bool = False
 
 
 class UpdateProfileRequest(BaseModel):
@@ -302,6 +311,85 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/api/auth/google/config")
+async def google_auth_config():
+    """Expose only the public Google OAuth client ID to the frontend."""
+    return {"enabled": bool(GOOGLE_CLIENT_ID), "client_id": GOOGLE_CLIENT_ID or None}
+
+
+@app.post("/api/auth/google")
+async def google_auth(data: GoogleAuthRequest):
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(503, "Google sign-in is not configured")
+
+    try:
+        claims = google_id_token.verify_oauth2_token(
+            data.credential,
+            google_requests.Request(),
+            GOOGLE_CLIENT_ID,
+        )
+    except Exception:
+        logger.warning("Google sign-in rejected an invalid ID token")
+        raise HTTPException(401, "Google authentication failed. Please try again.")
+
+    email = str(claims.get("email", "")).strip().lower()
+    google_sub = claims.get("sub")
+    full_name = str(claims.get("name") or claims.get("given_name") or "Shortie user").strip()
+
+    if not email or not google_sub or claims.get("email_verified") is not True:
+        raise HTTPException(401, "Google must provide a verified email address")
+
+    user = await users.find_one({"google_sub": google_sub})
+    is_new_user = user is None
+
+    if user is None:
+        user = await users.find_one({"email": email})
+
+        if user is not None:
+            # A verified Google email can be linked to an existing password account.
+            if user.get("google_sub") and user["google_sub"] != google_sub:
+                raise HTTPException(409, "This email is already linked to another Google account")
+            if not user.get("is_active", False):
+                raise HTTPException(403, "Account is disabled")
+            await users.update_one(
+                {"_id": user["_id"]},
+                {"$set": {"google_sub": google_sub}, "$addToSet": {"auth_providers": "google"}},
+            )
+            user["google_sub"] = google_sub
+        else:
+            if not data.terms_accepted:
+                raise HTTPException(400, "Please accept the Terms and Privacy Policy before creating your account")
+            user = {
+                "full_name": full_name[:100] or "Shortie user",
+                "email": email,
+                "password_hash": None,
+                "google_sub": google_sub,
+                "auth_providers": ["google"],
+                "role": "user",
+                "is_active": True,
+                "created_at": datetime.now(timezone.utc),
+            }
+            try:
+                result = await users.insert_one(user)
+                user["_id"] = result.inserted_id
+            except DuplicateKeyError:
+                # Handle simultaneous first sign-ins without creating duplicates.
+                user = await users.find_one({"$or": [{"email": email}, {"google_sub": google_sub}]})
+                if not user:
+                    raise HTTPException(409, "Could not create your account. Please try again.")
+
+    if not user.get("is_active", False):
+        raise HTTPException(403, "Account is disabled")
+
+    return {
+        "message": "Google sign-in successful",
+        "access_token": make_token(str(user["_id"])),
+        "token_type": "bearer",
+        "user": safe_user(user),
+        "is_new_user": is_new_user,
+    }
+
+
 @app.post("/api/auth/signup", status_code=201)
 async def signup(data: SignupRequest):
     full_name = data.full_name.strip()
@@ -338,7 +426,7 @@ async def signup(data: SignupRequest):
 async def login(data: LoginRequest):
     user = await users.find_one({"email": str(data.email).lower()})
 
-    if not user or not password_hash.verify(
+    if not user or not user.get("password_hash") or not password_hash.verify(
         data.password, user["password_hash"]
     ):
         raise HTTPException(401, "Invalid email or password")
@@ -376,6 +464,8 @@ async def change_password(data: ChangePasswordRequest, user: dict = Depends(get_
     account = await users.find_one({"_id": ObjectId(user["id"])})
     if not account:
         raise HTTPException(404, "Account not found")
+    if not account.get("password_hash"):
+        raise HTTPException(400, "This account uses Google sign-in and does not have a password yet")
     if not password_hash.verify(data.current_password, account["password_hash"]):
         raise HTTPException(400, "Current password is incorrect")
     if password_hash.verify(data.new_password, account["password_hash"]):

@@ -232,3 +232,19 @@ body {
     align-items: flex-start;
   }
 }
+
+/* Google Identity Services button container */
+.google-button-host {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+}
+.google-button-host[hidden] {
+  display: none;
+}
+.google-button-host > div {
+  max-width: 100%;
+}

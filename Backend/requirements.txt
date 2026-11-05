@@ -7,3 +7,4 @@ email-validator
 python-dotenv
 python-multipart
 dnspython>=2.6.1
+google-auth
