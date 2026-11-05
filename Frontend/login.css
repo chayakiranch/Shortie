@@ -87,7 +87,7 @@ body {
 }
 .google-button-host {
   width: 100%;
-  min-height: 48px;
+  min-height: 44px;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -97,6 +97,9 @@ body {
   display: none;
 }
 .google-button-host > div {
+  max-width: 100%;
+}
+.google-button-host iframe {
   max-width: 100%;
 }
 .google-terms-notice {
