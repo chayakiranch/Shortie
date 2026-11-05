@@ -248,3 +248,12 @@ body {
 .google-button-host > div {
   max-width: 100%;
 }
+
+/* Informational notice shown below the Google sign-in button. */
+.google-terms-notice {
+  margin: 8px 0 18px;
+  color: #52605a;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}

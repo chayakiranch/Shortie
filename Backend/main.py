@@ -137,7 +137,6 @@ class LoginRequest(BaseModel):
 
 class GoogleAuthRequest(BaseModel):
     credential: str = Field(min_length=20, max_length=10000)
-    terms_accepted: bool = False
 
 
 class UpdateProfileRequest(BaseModel):
@@ -357,8 +356,7 @@ async def google_auth(data: GoogleAuthRequest):
             )
             user["google_sub"] = google_sub
         else:
-            if not data.terms_accepted:
-                raise HTTPException(400, "Please accept the Terms and Privacy Policy before creating your account")
+            # A verified Google identity can create a Shortie account automatically.
             user = {
                 "full_name": full_name[:100] or "Shortie user",
                 "email": email,

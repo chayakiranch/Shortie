@@ -37,6 +37,10 @@
             class="google-button-host"
             aria-label="Continue with Google"
           ></div>
+          <p class="google-terms-notice">
+            By continuing with Google, you acknowledge that you have read
+            Shortie's Terms and Conditions and Privacy Policy.
+          </p>
 
           <div class="divider">
             <span></span>
@@ -80,15 +84,12 @@
       const API_URL = window.location.origin;
 
       async function handleGoogleCredential(response) {
-        const termsAccepted =
-          document.getElementById("terms")?.checked ?? false;
         try {
           const authResponse = await fetch(`${API_URL}/api/auth/google`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               credential: response.credential,
-              terms_accepted: termsAccepted,
             }),
           });
           const result = await authResponse.json();
