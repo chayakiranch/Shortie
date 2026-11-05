@@ -293,3 +293,46 @@ body {
     font-size: 32px;
   }
 }
+
+/* Consistent white Google sign-in pill on both authentication pages */
+.google-pill-button {
+  width: 100%;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 13px;
+  padding: 0 22px;
+  border: 1px solid #d9e0d9;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #171717;
+  font-family: Arial, sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 3px 12px rgba(20, 35, 30, 0.08);
+  transition:
+    box-shadow 0.18s ease,
+    background 0.18s ease,
+    transform 0.18s ease;
+}
+.google-pill-button:hover {
+  background: #fff;
+  box-shadow: 0 4px 16px rgba(20, 35, 30, 0.13);
+}
+.google-pill-button:active {
+  transform: translateY(1px);
+}
+.google-pill-button:focus-visible {
+  outline: 3px solid rgba(12, 128, 98, 0.25);
+  outline-offset: 2px;
+}
+.google-pill-button[hidden] {
+  display: none;
+}
+.google-mark {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+}
