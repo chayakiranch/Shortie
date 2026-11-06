@@ -183,10 +183,7 @@
     </main>
     <script>
       (() => {
-        const API =
-          location.protocol === "file:"
-            ? window.location.origin
-            : `${location.protocol}//${location.hostname}:8000`;
+        const API = "https://shortie-url.onrender.com";
         const token = sessionStorage.getItem("shortie_token");
         const $ = (id) => document.getElementById(id);
         let campaigns = [],
