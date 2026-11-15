@@ -79,9 +79,10 @@
         control.
       </p>
     </main>
+    <script src="config.js"></script>
     <script>
       (() => {
-        const API_BASE = "https://shortie-url.onrender.com";
+        const API_BASE = window.API_URL;
         const token = sessionStorage.getItem("shortie_token");
         const list = document.getElementById("domainList");
         const msg = document.getElementById("message");

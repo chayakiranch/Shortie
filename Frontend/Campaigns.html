@@ -181,9 +181,10 @@
         </form>
       </section>
     </main>
+    <script src="config.js"></script>
     <script>
       (() => {
-        const API = "https://shortie-url.onrender.com";
+        const API = window.API_URL;
         const token = sessionStorage.getItem("shortie_token");
         const $ = (id) => document.getElementById(id);
         let campaigns = [],
@@ -219,8 +220,12 @@
             location.href = "login.html";
             throw new Error("Session expired. Please sign in again.");
           }
-          if (!res.ok)
-            throw new Error(data.detail || `Request failed (${res.status})`);
+          if (!res.ok) {
+            const detail = Array.isArray(data.detail)
+              ? data.detail.map((item) => item.msg).filter(Boolean).join("; ")
+              : data.detail;
+            throw new Error(detail || `Request failed (${res.status})`);
+          }
           return data;
         }
         const esc = (s) =>

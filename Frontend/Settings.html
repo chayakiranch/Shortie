@@ -128,6 +128,10 @@
                 ></label
               >
             </div>
+            <p id="maliciousUrlNote" class="subtle-note">
+              URL reputation checking is not configured. Saving this preference
+              does not scan or block destinations.
+            </p>
             <label class="standalone-label" for="defaultExpiry"
               >Default expiry</label
             >
@@ -188,9 +192,10 @@
       </main>
     </div>
 
+    <script src="config.js"></script>
     <script>
       (() => {
-        const API_URL = window.location.origin;
+        const API_URL = window.API_URL;
         const token = sessionStorage.getItem("shortie_token");
         const $ = (id) => document.getElementById(id);
         let messageTimer;
@@ -212,7 +217,7 @@
         }
 
         async function api(path, options = {}) {
-          const response = await fetch(API + path, {
+          const response = await fetch(API_URL + path, {
             ...options,
             headers: {
               Authorization: `Bearer ${token}`,
@@ -226,8 +231,12 @@
             location.replace("login.html");
             throw new Error("Your session expired. Please sign in again.");
           }
-          if (!response.ok)
-            throw new Error(data.detail || data.message || "Request failed.");
+          if (!response.ok) {
+            const detail = Array.isArray(data.detail)
+              ? data.detail.map((item) => item.msg).filter(Boolean).join("; ")
+              : data.detail;
+            throw new Error(detail || data.message || "Request failed.");
+          }
           return data;
         }
 
@@ -318,6 +327,9 @@
             $("filterBots").checked = Boolean(data.filter_known_bots);
             $("checkMalicious").checked = Boolean(data.check_malicious_urls);
             $("defaultExpiry").value = data.default_expiry || "never";
+            $("maliciousUrlNote").textContent =
+              data.malicious_url_check_message ||
+              "URL reputation checking is not configured. Saving this preference does not scan or block destinations.";
           } catch (error) {
             showMessage(error.message, "error");
           }
@@ -336,6 +348,9 @@
                 default_expiry: $("defaultExpiry").value,
               }),
             });
+            $("maliciousUrlNote").textContent =
+              data.malicious_url_check_message ||
+              "URL reputation checking is not configured. Saving this preference does not scan or block destinations.";
             showMessage(data.message || "Link defaults saved successfully.");
           } catch (error) {
             showMessage(error.message, "error");

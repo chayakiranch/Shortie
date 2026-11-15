@@ -265,10 +265,11 @@
       </main>
     </div>
 
+    <script src="config.js"></script>
     <script>
       (() => {
         "use strict";
-        const API_URL = window.location.origin;
+        const API_URL = window.API_URL;
         const token = sessionStorage.getItem("shortie_token");
         const $ = (id) => document.getElementById(id);
         const form = $("shortenForm");
