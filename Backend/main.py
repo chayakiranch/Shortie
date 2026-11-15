@@ -1,5 +1,17 @@
 
 import os
+import json
+import base64
+import http.client
+import ipaddress
+import socket
+import ssl
+import time as time_module
+import urllib.parse
+import urllib.request
+import asyncio
+import smtplib
+from email.message import EmailMessage
 import re
 import secrets
 import string
@@ -10,12 +22,12 @@ from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Literal
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 
 import jwt
 from bson import ObjectId
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -25,7 +37,7 @@ from jwt.exceptions import InvalidTokenError
 from pwdlib import PasswordHash
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
-from pydantic import BaseModel, EmailStr, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, HttpUrl
 from pymongo import AsyncMongoClient, ReturnDocument
 from pymongo.errors import DuplicateKeyError
 import csv
@@ -43,6 +55,33 @@ SHORTIE_BASE_URL = os.getenv(
     "SHORTIE_BASE_URL", "http://127.0.0.1:8000"
 ).rstrip("/")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+
+# Password-reset email configuration. Keep these values in Render Environment,
+# never commit real SMTP credentials to GitHub.
+SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USERNAME = os.getenv("SMTP_USERNAME", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
+SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL", SMTP_USERNAME).strip()
+SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() in {"1", "true", "yes"}
+SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "false").lower() in {"1", "true", "yes"}
+FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", SHORTIE_BASE_URL).rstrip("/")
+PASSWORD_RESET_TTL_MINUTES = 15
+API_KEY_PEPPER = os.getenv("API_KEY_PEPPER", "").strip()
+WEBHOOK_SECRET_PEPPER = os.getenv("WEBHOOK_SECRET_PEPPER", "").strip()
+WEBHOOK_WORKER_POLL_SECONDS = max(
+    1.0, min(float(os.getenv("WEBHOOK_WORKER_POLL_SECONDS", "2")), 60.0)
+)
+WEBHOOK_MAX_ATTEMPTS = max(
+    1, min(int(os.getenv("WEBHOOK_MAX_ATTEMPTS", "6")), 10)
+)
+WEBHOOK_REQUEST_TIMEOUT_SECONDS = max(
+    1.0, min(float(os.getenv("WEBHOOK_REQUEST_TIMEOUT_SECONDS", "8")), 20.0)
+)
+WEBHOOK_WORKER_CONCURRENCY = max(
+    1, min(int(os.getenv("WEBHOOK_WORKER_CONCURRENCY", "4")), 10)
+)
 
 if not MONGODB_URL or not JWT_SECRET:
     raise RuntimeError(
@@ -60,6 +99,11 @@ links = db["links"]
 qr_codes = db["qr_codes"]
 click_events = db["click_events"]
 domains = db["domains"]
+password_reset_tokens = db["password_reset_tokens"]
+campaigns = db["campaigns"]
+api_keys = db["api_keys"]
+webhooks = db["webhooks"]
+webhook_deliveries = db["webhook_deliveries"]
 
 password_hash = PasswordHash.recommended()
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -71,6 +115,9 @@ async def lifespan(app: FastAPI):
 
     await users.create_index("email", unique=True)
     await users.create_index("google_sub", unique=True, sparse=True)
+    await password_reset_tokens.create_index("token_hash", unique=True)
+    await password_reset_tokens.create_index("expires_at", expireAfterSeconds=0)
+    await password_reset_tokens.create_index("user_id")
     await domains.create_index([("owner_id", 1), ("domain", 1)], unique=True)
     await links.create_index("code", unique=True)
     await links.create_index([("owner_id", 1), ("created_at", -1)])
@@ -91,15 +138,63 @@ async def lifespan(app: FastAPI):
     await click_events.create_index(
         [("code", 1), ("clicked_at", -1)]
     )
+    await campaigns.create_index([("owner_id", 1), ("created_at", -1)])
+    await api_keys.create_index(
+        "key_hash",
+        unique=True,
+        partialFilterExpression={"key_hash": {"$type": "string"}},
+    )
+    await api_keys.create_index([("owner_id", 1), ("created_at", -1)])
+    await api_keys.create_index("key_prefix")
+    await webhooks.create_index([("owner_id", 1), ("created_at", -1)])
+    await webhooks.create_index([("owner_id", 1), ("active", 1)])
+    await webhook_deliveries.create_index(
+        [("event_id", 1), ("webhook_id", 1)],
+        unique=True,
+        partialFilterExpression={
+            "event_id": {"$type": "string"},
+            "webhook_id": {"$type": "string"},
+        },
+    )
+    await webhook_deliveries.create_index(
+        [("webhook_id", 1), ("created_at", -1)]
+    )
+    await webhook_deliveries.create_index(
+        [("status", 1), ("next_attempt_at", 1)]
+    )
+    await webhook_deliveries.create_index(
+        [("status", 1), ("lease_until", 1)]
+    )
+    await webhook_deliveries.create_index(
+        [("owner_id", 1), ("created_at", -1)]
+    )
 
     logger.info("Shortie database connected successfully")
-    yield
-    await client.close()
+    stop_worker = asyncio.Event()
+    worker_task = asyncio.create_task(
+        webhook_delivery_worker(stop_worker),
+        name="shortie-webhook-delivery-worker",
+    )
+    try:
+        yield
+    finally:
+        stop_worker.set()
+        try:
+            await asyncio.wait_for(
+                worker_task,
+                timeout=(WEBHOOK_REQUEST_TIMEOUT_SECONDS * 3) + 12,
+            )
+        except asyncio.TimeoutError:
+            worker_task.cancel()
+            await asyncio.gather(worker_task, return_exceptions=True)
+        finally:
+            await client.close()
 
 
 app = FastAPI(
     title="Shortie API",
     version="1.3.0",
+    lifespan=lifespan,
 )
 
 # Permit localhost development servers on any port.
@@ -113,11 +208,12 @@ app.add_middleware(
         "http://localhost:5501",
         "http://127.0.0.1:5502",
         "http://localhost:5502",
+        FRONTEND_BASE_URL,
     ],
     allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=False,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_headers=["Content-Type", "Authorization", "X-API-Key"],
 )
 
 
@@ -135,8 +231,23 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=200)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
 class GoogleAuthRequest(BaseModel):
     credential: str = Field(min_length=20, max_length=10000)
+    terms_accepted: bool = False
+
+
+class GoogleCodeAuthRequest(BaseModel):
+    code: str = Field(min_length=10, max_length=10000)
+    terms_accepted: bool = False
 
 
 class UpdateProfileRequest(BaseModel):
@@ -178,6 +289,48 @@ class SaveQRCodeRequest(BaseModel):
     logo: str | None = Field(default=None, max_length=3_000_000)
 
 
+class StrictRequestModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class CampaignCreateRequest(StrictRequestModel):
+    name: str = Field(min_length=1, max_length=100)
+    description: str = Field(default="", max_length=500)
+    channel: Literal[
+        "Other", "Social", "Email", "Newsletter", "QR scan",
+        "Website", "Paid ads", "Print",
+    ] = "Other"
+    status: Literal["active", "paused", "archived"] = "active"
+    link_ids: list[str] = Field(default_factory=list, max_length=500)
+
+
+class CampaignUpdateRequest(StrictRequestModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = Field(default=None, max_length=500)
+    channel: Literal[
+        "Other", "Social", "Email", "Newsletter", "QR scan",
+        "Website", "Paid ads", "Print",
+    ] | None = None
+    status: Literal["active", "paused", "archived"] | None = None
+    link_ids: list[str] | None = Field(default=None, max_length=500)
+
+
+class APIKeyCreateRequest(StrictRequestModel):
+    name: str = Field(min_length=2, max_length=60)
+    scopes: list[str] = Field(min_length=1, max_length=8)
+
+
+class WebhookCreateRequest(StrictRequestModel):
+    url: str = Field(min_length=1, max_length=2048)
+    events: list[str] = Field(min_length=1, max_length=3)
+
+
+class LinkDefaultsUpdateRequest(StrictRequestModel):
+    filter_known_bots: bool | None = None
+    check_malicious_urls: bool | None = None
+    default_expiry: Literal["never", "7", "30", "90"] | None = None
+
+
 # Privacy-conscious visitor tracking. A random first-party cookie is stored
 # in the visitor browser; only an HMAC of its value is saved in click_events.
 VISITOR_COOKIE_NAME = "shortie_visitor"
@@ -211,11 +364,12 @@ def set_visitor_cookie(response, cookie_value: str, is_new: bool):
 
 # Authentication helpers
 
-def make_token(user_id: str) -> str:
+def make_token(user_id: str, token_version: int = 0) -> str:
     now = datetime.now(timezone.utc)
     return jwt.encode(
         {
             "sub": user_id,
+            "ver": token_version,
             "iat": now,
             "exp": now + timedelta(minutes=30),
         },
@@ -232,6 +386,7 @@ def safe_user(user: dict) -> dict:
     }
 
 
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(
         bearer_scheme
@@ -246,10 +401,19 @@ async def get_current_user(
             JWT_SECRET,
             algorithms=["HS256"],
         )
+
         user_id = payload.get("sub")
+        token_version = payload.get("ver", 0)
 
         if not isinstance(user_id, str) or not ObjectId.is_valid(user_id):
             raise InvalidTokenError("Invalid user ID")
+
+        if (
+            not isinstance(token_version, int)
+            or isinstance(token_version, bool)
+            or token_version < 0
+        ):
+            raise InvalidTokenError("Invalid token version")
 
     except InvalidTokenError:
         raise HTTPException(401, "Invalid or expired token")
@@ -259,7 +423,13 @@ async def get_current_user(
     if not user or not user.get("is_active", False):
         raise HTTPException(401, "User not found or inactive")
 
+    current_version = user.get("token_version", 0)
+
+    if token_version != current_version:
+        raise HTTPException(401, "Session expired. Please log in again.")
+
     return safe_user(user)
+
 
 
 # Response helpers
@@ -298,6 +468,871 @@ def generate_code(length: int = 7) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
+DEFAULT_LINK_PREFERENCES = {
+    "filter_known_bots": True,
+    "check_malicious_urls": False,
+    "default_expiry": "never",
+}
+
+API_KEY_SCOPES = frozenset({
+    "links:read",
+    "links:write",
+    "campaigns:read",
+    "campaigns:write",
+    "analytics:read",
+    "qr_codes:read",
+    "qr_codes:write",
+    "domains:read",
+})
+WEBHOOK_EVENTS = frozenset({
+    "link.created",
+    "link.clicked",
+    "link.deleted",
+})
+WEBHOOK_TEST_EVENT = "webhook.test"
+API_KEY_RATE_LIMIT = 60
+API_KEY_RATE_WINDOW_SECONDS = 60
+
+
+def _require_secret(value: str, setting_name: str) -> bytes:
+    if len(value) < 32:
+        raise HTTPException(
+            status_code=503,
+            detail=f"{setting_name} must be configured with at least 32 characters.",
+        )
+    if hmac.compare_digest(value.encode("utf-8"), JWT_SECRET.encode("utf-8")):
+        raise HTTPException(
+            status_code=503,
+            detail=f"{setting_name} must not reuse JWT_SECRET.",
+        )
+    if setting_name == "WEBHOOK_SECRET_PEPPER" and hmac.compare_digest(
+        value.encode("utf-8"),
+        API_KEY_PEPPER.encode("utf-8"),
+    ):
+        raise HTTPException(
+            status_code=503,
+            detail="WEBHOOK_SECRET_PEPPER must be independent from API_KEY_PEPPER.",
+        )
+    return value.encode("utf-8")
+
+
+def hash_api_key(raw_key: str) -> str:
+    return hmac.new(
+        _require_secret(API_KEY_PEPPER, "API_KEY_PEPPER"),
+        raw_key.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def derive_webhook_secret(secret_nonce: str) -> str:
+    digest = hmac.new(
+        _require_secret(WEBHOOK_SECRET_PEPPER, "WEBHOOK_SECRET_PEPPER"),
+        b"shortie-webhook:" + secret_nonce.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    return "whsec_" + base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
+
+
+def validate_api_key_scopes(scopes: list[str]) -> list[str]:
+    if not scopes:
+        raise HTTPException(422, "Select at least one API key scope.")
+    if len(scopes) != len(set(scopes)):
+        raise HTTPException(422, "API key scopes must not contain duplicates.")
+    invalid = sorted(set(scopes) - API_KEY_SCOPES)
+    if invalid:
+        raise HTTPException(
+            422,
+            f"Unsupported API key scope: {', '.join(invalid)}",
+        )
+    return sorted(scopes)
+
+
+async def authenticate_api_key(raw_key: str, required_scope: str) -> dict:
+    if len(raw_key) > 256 or not re.fullmatch(r"sk_live_[A-Za-z0-9_-]{32,100}", raw_key):
+        raise HTTPException(401, "Invalid API key")
+
+    digest = hash_api_key(raw_key)
+    prefix = raw_key[:16]
+    matches = [
+        item async for item in api_keys.find(
+            {"key_prefix": prefix},
+            {"key_hash": 1, "owner_id": 1, "scopes": 1, "active": 1},
+        )
+    ]
+    key_record = next(
+        (
+            item for item in matches
+            if isinstance(item.get("key_hash"), str)
+            and hmac.compare_digest(item["key_hash"], digest)
+        ),
+        None,
+    )
+    if not key_record or not key_record.get("active", False):
+        raise HTTPException(401, "Invalid or revoked API key")
+
+    if required_scope not in key_record.get("scopes", []):
+        raise HTTPException(403, f"API key is missing the {required_scope} scope.")
+
+    owner_id = key_record.get("owner_id")
+    if not isinstance(owner_id, str) or not ObjectId.is_valid(owner_id):
+        raise HTTPException(401, "Invalid API key owner")
+    owner_object_id = ObjectId(owner_id)
+    owner = await users.find_one({"_id": owner_object_id})
+    if not owner or not owner.get("is_active", False):
+        raise HTTPException(401, "API key owner is inactive")
+
+    now = datetime.now(timezone.utc)
+    month = now.strftime("%Y-%m")
+    rate_cutoff = now - timedelta(seconds=API_KEY_RATE_WINDOW_SECONDS)
+    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+    result = await api_keys.update_one(
+        {"_id": key_record["_id"], "active": True},
+        [
+            {
+                "$set": {
+                    "rate_window_start": {
+                        "$cond": [
+                            {
+                                "$lt": [
+                                    {"$ifNull": ["$rate_window_start", epoch]},
+                                    rate_cutoff,
+                                ]
+                            },
+                            now,
+                            "$rate_window_start",
+                        ]
+                    },
+                    "rate_window_count": {
+                        "$cond": [
+                            {
+                                "$lt": [
+                                    {"$ifNull": ["$rate_window_start", epoch]},
+                                    rate_cutoff,
+                                ]
+                            },
+                            1,
+                            {"$add": [{"$ifNull": ["$rate_window_count", 0]}, 1]},
+                        ]
+                    },
+                    "usage_month": month,
+                    "monthly_usage": {
+                        "$cond": [
+                            {"$eq": ["$usage_month", month]},
+                            {"$add": [{"$ifNull": ["$monthly_usage", 0]}, 1]},
+                            1,
+                        ]
+                    },
+                    "last_used_at": {
+                        "$cond": [
+                            {
+                                "$lt": [
+                                    {"$ifNull": ["$last_used_at", epoch]},
+                                    rate_cutoff,
+                                ]
+                            },
+                            now,
+                            "$last_used_at",
+                        ]
+                    },
+                }
+            }
+        ],
+    )
+    if result.matched_count != 1:
+        raise HTTPException(401, "Invalid or revoked API key")
+    usage = await api_keys.find_one(
+        {"_id": key_record["_id"]},
+        {"rate_window_count": 1, "rate_window_start": 1},
+    )
+    if usage and usage.get("rate_window_count", 0) > API_KEY_RATE_LIMIT:
+        retry_after = max(
+            1,
+            API_KEY_RATE_WINDOW_SECONDS
+            - int((now - usage["rate_window_start"]).total_seconds()),
+        )
+        raise HTTPException(
+            429,
+            "API key rate limit exceeded.",
+            headers={"Retry-After": str(retry_after)},
+        )
+    return safe_user(owner)
+
+
+def require_api_scope(required_scope: str):
+    async def authenticated_user(
+        credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+        api_key: str | None = Header(default=None, alias="X-API-Key"),
+    ):
+        if api_key is not None:
+            if credentials is not None:
+                raise HTTPException(
+                    400,
+                    "Send either a Bearer token or X-API-Key, not both.",
+                )
+            return await authenticate_api_key(api_key, required_scope)
+        return await get_current_user(credentials)
+
+    return authenticated_user
+
+
+async def get_link_preferences(user_id: str) -> dict:
+    user = await users.find_one(
+        {"_id": ObjectId(user_id)},
+        {"preferences": 1},
+    )
+    stored = user.get("preferences", {}) if user else {}
+    preferences = {**DEFAULT_LINK_PREFERENCES, **(stored if isinstance(stored, dict) else {})}
+    if preferences.get("default_expiry") not in {"never", "7", "30", "90"}:
+        preferences["default_expiry"] = "never"
+    preferences["filter_known_bots"] = bool(preferences["filter_known_bots"])
+    preferences["check_malicious_urls"] = bool(preferences["check_malicious_urls"])
+    return preferences
+
+
+async def campaign_response(campaign: dict, owner_id: str) -> dict:
+    raw_ids = campaign.get("link_ids", [])
+    object_ids = [ObjectId(value) for value in raw_ids if ObjectId.is_valid(value)]
+    owned_links = [
+        item async for item in links.find(
+            {"_id": {"$in": object_ids}, "owner_id": owner_id},
+            {"_id": 1},
+        )
+    ] if object_ids else []
+    link_ids = [str(item["_id"]) for item in owned_links]
+    clicks = await click_events.count_documents({
+        "owner_id": owner_id,
+        "link_id": {"$in": link_ids},
+    }) if link_ids else 0
+    return {
+        "id": str(campaign["_id"]),
+        "name": campaign["name"],
+        "description": campaign.get("description", ""),
+        "channel": campaign.get("channel", "Other"),
+        "status": campaign.get("status", "active"),
+        "link_ids": link_ids,
+        "link_count": len(link_ids),
+        "clicks": clicks,
+        "created_at": campaign["created_at"].isoformat(),
+        "updated_at": campaign["updated_at"].isoformat(),
+    }
+
+
+async def validate_campaign_links(link_ids: list[str], owner_id: str) -> list[str]:
+    canonical_ids = []
+    for link_id in link_ids:
+        if not ObjectId.is_valid(link_id):
+            raise HTTPException(400, "One or more selected links are invalid.")
+        canonical_ids.append(str(ObjectId(link_id)))
+    if len(canonical_ids) != len(set(canonical_ids)):
+        raise HTTPException(400, "A link can only be associated once.")
+    if not canonical_ids:
+        return []
+    owned_count = await links.count_documents({
+        "_id": {"$in": [ObjectId(value) for value in canonical_ids]},
+        "owner_id": owner_id,
+    })
+    if owned_count != len(canonical_ids):
+        raise HTTPException(
+            400,
+            "One or more selected links are unavailable in your account.",
+        )
+    return canonical_ids
+
+
+def serialize_api_key(record: dict) -> dict:
+    current_month = datetime.now(timezone.utc).strftime("%Y-%m")
+    return {
+        "id": str(record["_id"]),
+        "name": record["name"],
+        "prefix": record.get("key_prefix", ""),
+        "last_four": record.get("last_four", ""),
+        "scopes": record.get("scopes", []),
+        "revoked": not record.get("active", False),
+        "created_at": record["created_at"].isoformat(),
+        "last_used_at": (
+            record["last_used_at"].isoformat()
+            if record.get("last_used_at") else None
+        ),
+        "monthly_usage": (
+            record.get("monthly_usage", 0)
+            if record.get("usage_month") == current_month else 0
+        ),
+    }
+
+
+def serialize_webhook(record: dict) -> dict:
+    return {
+        "id": str(record["_id"]),
+        "url": record["url"],
+        "events": record.get("events", []),
+        "active": bool(record.get("active", False)),
+        "created_at": record["created_at"].isoformat(),
+        "last_test_at": (
+            record["last_test_at"].isoformat()
+            if record.get("last_test_at") else None
+        ),
+    }
+
+
+async def resolve_public_webhook_target(url: str) -> tuple[str, str, int, str]:
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        host = (parsed.hostname or "").rstrip(".").lower()
+        port = parsed.port or 443
+    except ValueError:
+        raise ValueError("Webhook URL is invalid.")
+
+    if (
+        parsed.scheme.lower() != "https"
+        or not host
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+        or port != 443
+        or host in {"localhost"}
+        or host.endswith((".localhost", ".local", ".internal", ".test"))
+    ):
+        raise ValueError("Webhook URLs must use HTTPS on a public host and port 443.")
+
+    try:
+        literal_ip = ipaddress.ip_address(host)
+    except ValueError:
+        if "." not in host:
+            raise ValueError("Webhook host must be a public DNS name.")
+        loop = asyncio.get_running_loop()
+        try:
+            resolved = await asyncio.wait_for(
+                loop.getaddrinfo(host, port, type=socket.SOCK_STREAM),
+                timeout=WEBHOOK_REQUEST_TIMEOUT_SECONDS,
+            )
+        except (OSError, asyncio.TimeoutError):
+            raise ValueError("Webhook host could not be resolved.")
+        addresses = list(dict.fromkeys(item[4][0] for item in resolved))
+    else:
+        addresses = [str(literal_ip)]
+
+    if not addresses:
+        raise ValueError("Webhook host has no usable address.")
+    for address in addresses:
+        try:
+            parsed_ip = ipaddress.ip_address(address)
+        except ValueError:
+            raise ValueError("Webhook host resolved to an invalid address.")
+        if not parsed_ip.is_global:
+            raise ValueError("Webhook host must resolve only to public IP addresses.")
+
+    target = parsed.path or "/"
+    if parsed.query:
+        target += "?" + parsed.query
+    return host, addresses[0], port, target
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(self, host: str, address: str, port: int, timeout: float):
+        super().__init__(
+            host,
+            port,
+            timeout=timeout,
+            context=ssl.create_default_context(),
+        )
+        self._pinned_address = address
+
+    def connect(self):
+        self.sock = socket.create_connection(
+            (self._pinned_address, self.port),
+            self.timeout,
+        )
+        self.sock = self._context.wrap_socket(
+            self.sock,
+            server_hostname=self.host,
+        )
+
+
+def _send_webhook_request(
+    host: str,
+    address: str,
+    port: int,
+    target: str,
+    body: bytes,
+    headers: dict[str, str],
+) -> int:
+    connection = _PinnedHTTPSConnection(
+        host,
+        address,
+        port,
+        WEBHOOK_REQUEST_TIMEOUT_SECONDS,
+    )
+    try:
+        connection.request("POST", target, body=body, headers=headers)
+        response = connection.getresponse()
+        return response.status
+    finally:
+        connection.close()
+
+
+def _build_webhook_signature(secret: str, timestamp: str, body: bytes) -> str:
+    digest = hmac.new(
+        secret.encode("utf-8"),
+        timestamp.encode("ascii") + b"." + body,
+        hashlib.sha256,
+    ).hexdigest()
+    return "sha256=" + digest
+
+
+async def enqueue_webhook_deliveries(
+    owner_id: str,
+    event_type: str,
+    data: dict,
+    webhook_records: list[dict] | None = None,
+) -> str:
+    event_id = "evt_" + secrets.token_urlsafe(18)
+    now = datetime.now(timezone.utc)
+    payload = {
+        "id": event_id,
+        "type": event_type,
+        "created_at": now.isoformat(),
+        "data": data,
+    }
+    if webhook_records is None:
+        webhook_records = [
+            item async for item in webhooks.find({
+                "owner_id": owner_id,
+                "active": True,
+                "events": event_type,
+            })
+        ]
+    if webhook_records:
+        await webhook_deliveries.insert_many(
+            [
+                {
+                    "event_id": event_id,
+                    "webhook_id": str(item["_id"]),
+                    "owner_id": owner_id,
+                    "event_type": event_type,
+                    "payload": payload,
+                    "status": "pending",
+                    "attempts": 0,
+                    "max_attempts": WEBHOOK_MAX_ATTEMPTS,
+                    "next_attempt_at": now,
+                    "last_attempt_at": None,
+                    "last_status_code": None,
+                    "last_error": None,
+                    "lease_until": None,
+                    "lease_token": None,
+                    "created_at": now,
+                    "delivered_at": None,
+                }
+                for item in webhook_records
+            ],
+            ordered=False,
+        )
+    return event_id
+
+
+async def safely_enqueue_link_event(
+    owner_id: str,
+    event_type: str,
+    data: dict,
+):
+    try:
+        await enqueue_webhook_deliveries(owner_id, event_type, data)
+    except Exception:
+        logger.exception("Could not persist webhook event %s", event_type)
+
+
+async def record_click_event(
+    link: dict,
+    request: Request,
+    visitor_id: str,
+    clicked_at: datetime,
+    increment_if_unrecorded: bool = False,
+):
+    event = {
+        "link_id": str(link["_id"]),
+        "code": link["code"],
+        "owner_id": link["owner_id"],
+        "clicked_at": clicked_at,
+        "visitor_id": visitor_id,
+        "referrer": request.headers.get("referer"),
+        "user_agent": request.headers.get("user-agent"),
+    }
+    try:
+        await click_events.insert_one(event)
+    except Exception:
+        logger.exception("Failed to record click event for %s", link["code"])
+    else:
+        try:
+            await links.update_one(
+                {"_id": link["_id"]},
+                {"$inc": {"clicks": 1}},
+            )
+        except Exception:
+            logger.exception(
+                "Failed to increment click counter for %s",
+                link["code"],
+            )
+        await safely_enqueue_link_event(
+            link["owner_id"],
+            "link.clicked",
+            {
+                "link_id": str(link["_id"]),
+                "code": link["code"],
+                "clicked_at": clicked_at.isoformat(),
+            },
+        )
+        return True
+
+    if increment_if_unrecorded:
+        try:
+            await links.update_one(
+                {"_id": link["_id"]},
+                {"$inc": {"clicks": 1}},
+            )
+        except Exception:
+            logger.exception(
+                "Failed to increment click counter for %s",
+                link["code"],
+            )
+    return False
+
+
+async def _claim_webhook_delivery() -> dict | None:
+    now = datetime.now(timezone.utc)
+    lease_token = secrets.token_urlsafe(18)
+
+    # A worker may crash after claiming the final allowed attempt. Once that
+    # lease expires, mark the delivery failed instead of claiming it again.
+    await webhook_deliveries.update_many(
+        {
+            "status": "processing",
+            "lease_until": {"$lte": now},
+            "$expr": {
+                "$gte": [
+                    {"$ifNull": ["$attempts", 0]},
+                    {"$ifNull": ["$max_attempts", WEBHOOK_MAX_ATTEMPTS]},
+                ]
+            },
+        },
+        {
+            "$set": {
+                "status": "failed",
+                "last_error": (
+                    "Maximum delivery attempts reached after worker lease expired."
+                ),
+                "lease_until": None,
+                "lease_token": None,
+            }
+        },
+    )
+
+    # Claim pending or expired deliveries only while attempts remain.
+    return await webhook_deliveries.find_one_and_update(
+        {
+            "$or": [
+                {
+                    "status": "pending",
+                    "next_attempt_at": {"$lte": now},
+                    "$expr": {
+                        "$lt": [
+                            {"$ifNull": ["$attempts", 0]},
+                            {"$ifNull": ["$max_attempts", WEBHOOK_MAX_ATTEMPTS]},
+                        ]
+                    },
+                },
+                {
+                    "status": "processing",
+                    "lease_until": {"$lte": now},
+                    "$expr": {
+                        "$lt": [
+                            {"$ifNull": ["$attempts", 0]},
+                            {"$ifNull": ["$max_attempts", WEBHOOK_MAX_ATTEMPTS]},
+                        ]
+                    },
+                },
+            ]
+        },
+        {
+            "$set": {
+                "status": "processing",
+                "lease_until": now + timedelta(
+                    seconds=(WEBHOOK_REQUEST_TIMEOUT_SECONDS * 3) + 10
+                ),
+                "lease_token": lease_token,
+                "last_attempt_at": now,
+            },
+            "$inc": {"attempts": 1},
+        },
+        sort=[("next_attempt_at", 1), ("created_at", 1)],
+        return_document=ReturnDocument.AFTER,
+    )
+
+
+async def _finish_webhook_delivery(
+    delivery: dict,
+    *,
+    delivered: bool,
+    status_code: int | None = None,
+    error: str | None = None,
+):
+    now = datetime.now(timezone.utc)
+    attempts = delivery.get("attempts", 1)
+    max_attempts = delivery.get("max_attempts", WEBHOOK_MAX_ATTEMPTS)
+    if delivered:
+        changes = {
+            "status": "delivered",
+            "delivered_at": now,
+            "last_status_code": status_code,
+            "last_error": None,
+            "lease_until": None,
+            "lease_token": None,
+        }
+    elif attempts >= max_attempts:
+        changes = {
+            "status": "failed",
+            "last_status_code": status_code,
+            "last_error": (error or "Delivery failed")[:500],
+            "lease_until": None,
+            "lease_token": None,
+        }
+    else:
+        base_delay = min(3600, 5 * (2 ** min(attempts - 1, 10)))
+        jitter = 0.5 + secrets.randbelow(1001) / 1000
+        changes = {
+            "status": "pending",
+            "next_attempt_at": now + timedelta(seconds=base_delay * jitter),
+            "last_status_code": status_code,
+            "last_error": (error or "Delivery failed")[:500],
+            "lease_until": None,
+            "lease_token": None,
+        }
+    await webhook_deliveries.update_one(
+        {
+            "_id": delivery["_id"],
+            "status": "processing",
+            "lease_token": delivery.get("lease_token"),
+        },
+        {"$set": changes},
+    )
+
+
+async def _deliver_webhook_delivery(delivery: dict):
+    webhook = None
+    if ObjectId.is_valid(delivery.get("webhook_id", "")):
+        webhook = await webhooks.find_one({
+            "_id": ObjectId(delivery["webhook_id"]),
+            "owner_id": delivery["owner_id"],
+            "active": True,
+        })
+    if not webhook:
+        await webhook_deliveries.update_one(
+            {
+                "_id": delivery["_id"],
+                "status": "processing",
+                "lease_token": delivery.get("lease_token"),
+            },
+            {
+                "$set": {
+                    "status": "failed",
+                    "last_error": "Webhook is no longer active.",
+                    "lease_until": None,
+                    "lease_token": None,
+                }
+            },
+        )
+        return
+
+    try:
+        host, address, port, target = await resolve_public_webhook_target(
+            webhook["url"]
+        )
+        secret = derive_webhook_secret(webhook["secret_nonce"])
+        body = json.dumps(
+            delivery["payload"],
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+        timestamp = str(int(time_module.time()))
+        status_code = await asyncio.to_thread(
+            _send_webhook_request,
+            host,
+            address,
+            port,
+            target,
+            body,
+            {
+                "Content-Type": "application/json",
+                "X-Shortie-Event-Id": delivery["event_id"],
+                "X-Shortie-Event": delivery["event_type"],
+                "X-Shortie-Timestamp": timestamp,
+                "Host": f"[{host}]" if ":" in host else host,
+                "X-Shortie-Signature": _build_webhook_signature(
+                    secret,
+                    timestamp,
+                    body,
+                ),
+            },
+        )
+        await _finish_webhook_delivery(
+            delivery,
+            delivered=200 <= status_code < 300,
+            status_code=status_code,
+            error=None if 200 <= status_code < 300 else "Endpoint returned a non-2xx response.",
+        )
+    except Exception as exc:
+        await _finish_webhook_delivery(
+            delivery,
+            delivered=False,
+            error=f"Delivery failed ({type(exc).__name__}).",
+        )
+        logger.warning(
+            "Webhook delivery %s failed with %s",
+            delivery.get("event_id", "unknown"),
+            type(exc).__name__,
+        )
+
+
+async def webhook_delivery_worker(stop_event: asyncio.Event):
+    logger.info("Webhook delivery worker started")
+    while not stop_event.is_set():
+        try:
+            batch = []
+            for _ in range(WEBHOOK_WORKER_CONCURRENCY):
+                delivery = await _claim_webhook_delivery()
+                if not delivery:
+                    break
+                logger.info(
+                    "Claimed webhook delivery event_id=%s event_type=%s",
+                    delivery.get("event_id", "unknown"),
+                    delivery.get("event_type", "unknown"),
+                )
+                batch.append(delivery)
+            if batch:
+                await asyncio.gather(
+                    *(_deliver_webhook_delivery(item) for item in batch)
+                )
+                continue
+        except Exception:
+            logger.exception("Webhook delivery worker encountered an error")
+
+        try:
+            await asyncio.wait_for(
+                stop_event.wait(),
+                timeout=WEBHOOK_WORKER_POLL_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            pass
+
+
+# Password reset helpers
+
+
+def _password_reset_email_configured() -> bool:
+    required_settings = [
+        SMTP_HOST,
+        SMTP_PORT,
+        SMTP_USERNAME,
+        SMTP_PASSWORD,
+        SMTP_FROM_EMAIL,
+    ]
+
+    if not all(required_settings):
+        return False
+
+    placeholder_markers = (
+        "your-",
+        "replace",
+        "placeholder",
+        "example",
+        "changeme",
+        "dummy",
+        "xxxx",
+    )
+
+    configured_values = [
+        SMTP_HOST,
+        SMTP_USERNAME,
+        SMTP_PASSWORD,
+        SMTP_FROM_EMAIL,
+    ]
+
+    return not any(
+        marker in value.lower()
+        for value in configured_values
+        for marker in placeholder_markers
+    )
+
+
+
+def _send_password_reset_email(recipient: str, reset_url: str, expires_minutes: int) -> None:
+    message = EmailMessage()
+    message["Subject"] = "Reset your Shortie password"
+    message["From"] = SMTP_FROM_EMAIL
+    message["To"] = recipient
+    message.set_content(
+        "We received a request to reset your Shortie password.\n\n"
+        f"Use this one-time link within {expires_minutes} minutes:\n{reset_url}\n\n"
+        "If you did not request this, you can safely ignore this email. "
+        "Your password will not change unless you open the link and choose a new password.\n\n"
+        "Shortie Support"
+    )
+    message.add_alternative(
+        f"""<!doctype html><html><body style='font-family:Arial,sans-serif;color:#14231e'>
+        <h2>Reset your Shortie password</h2>
+        <p>We received a request to reset your Shortie password.</p>
+        <p><a href=\"{reset_url}\" style='display:inline-block;background:#0c8062;color:#fff;padding:13px 22px;border-radius:8px;text-decoration:none;font-weight:bold'>Reset password</a></p>
+        <p>This link expires in <strong>{expires_minutes} minutes</strong> and can only be used once.</p>
+        <p>If you did not request this, ignore this email. Your password will not change.</p>
+        <p>Shortie Support</p></body></html>""",
+        subtype="html",
+    )
+
+    if SMTP_USE_SSL:
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=20) as server:
+            if SMTP_USERNAME:
+                server.login(SMTP_USERNAME, SMTP_PASSWORD)
+            server.send_message(message)
+    else:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
+            server.ehlo()
+            if SMTP_USE_TLS:
+                server.starttls()
+                server.ehlo()
+            if SMTP_USERNAME:
+                server.login(SMTP_USERNAME, SMTP_PASSWORD)
+            server.send_message(message)
+
+
+def exchange_google_authorization_code(code: str) -> str:
+    """Exchange a GIS popup authorization code and return Google's ID token."""
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        raise HTTPException(503, "Google sign-in is not fully configured")
+
+    payload = urllib.parse.urlencode({
+        "code": code,
+        "client_id": GOOGLE_CLIENT_ID,
+        "client_secret": GOOGLE_CLIENT_SECRET,
+        "redirect_uri": "postmessage",
+        "grant_type": "authorization_code",
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        "https://oauth2.googleapis.com/token",
+        data=payload,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            token_data = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        logger.warning("Google authorization-code exchange failed: %s", exc)
+        raise HTTPException(401, "Google authentication failed. Please try again.")
+
+    id_token_value = token_data.get("id_token")
+    if not id_token_value:
+        raise HTTPException(401, "Google did not return a valid identity token")
+    return id_token_value
+
+
 # Home and authentication
 
 @app.get("/")
@@ -313,7 +1348,10 @@ async def health():
 @app.get("/api/auth/google/config")
 async def google_auth_config():
     """Expose only the public Google OAuth client ID to the frontend."""
-    return {"enabled": bool(GOOGLE_CLIENT_ID), "client_id": GOOGLE_CLIENT_ID or None}
+    return {
+    "enabled": bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET),
+    "client_id": GOOGLE_CLIENT_ID if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET else None
+}
 
 
 @app.post("/api/auth/google")
@@ -356,7 +1394,8 @@ async def google_auth(data: GoogleAuthRequest):
             )
             user["google_sub"] = google_sub
         else:
-            # A verified Google identity can create a Shortie account automatically.
+            if not data.terms_accepted:
+                raise HTTPException(400, "Please accept the Terms and Privacy Policy before creating your account")
             user = {
                 "full_name": full_name[:100] or "Shortie user",
                 "email": email,
@@ -381,11 +1420,150 @@ async def google_auth(data: GoogleAuthRequest):
 
     return {
         "message": "Google sign-in successful",
-        "access_token": make_token(str(user["_id"])),
+        "access_token": make_token(str(user["_id"]),user.get("token_version", 0),),
         "token_type": "bearer",
         "user": safe_user(user),
         "is_new_user": is_new_user,
     }
+
+
+@app.post("/api/auth/forgot-password")
+async def forgot_password(data: ForgotPasswordRequest):
+    """Send a one-time 15-minute reset link without revealing whether an email exists."""
+    if not _password_reset_email_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Password recovery email is not configured yet. Please contact Shortie support.",
+        )
+
+    email = str(data.email).strip().lower()
+    user = await users.find_one({"email": email, "is_active": True})
+    if user and user.get("email"):
+        now = datetime.now(timezone.utc)
+        recent_request = await password_reset_tokens.find_one({
+            "user_id": str(user["_id"]),
+            "created_at": {"$gt": now - timedelta(seconds=60)},
+        })
+        if recent_request:
+            return {
+                "message": "If an active Shortie account exists for that email, a password reset link has been sent. Check your inbox and spam folder."
+            }
+
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+        expires_at = now + timedelta(minutes=PASSWORD_RESET_TTL_MINUTES)
+
+        # A newer request invalidates older links for the same account.
+        await password_reset_tokens.delete_many({"user_id": str(user["_id"])})
+        await password_reset_tokens.insert_one({
+            "user_id": str(user["_id"]),
+            "token_hash": token_hash,
+            "created_at": now,
+            "expires_at": expires_at,
+        })
+
+        reset_url = (
+            f"{FRONTEND_BASE_URL}/reset-password.html?token={quote(raw_token, safe='')}"
+        )
+        try:
+            await asyncio.to_thread(
+                _send_password_reset_email,
+                email,
+                reset_url,
+                PASSWORD_RESET_TTL_MINUTES,
+            )
+        except Exception:
+            # Do not leave a usable token behind if delivery fails.
+            await password_reset_tokens.delete_one({"token_hash": token_hash})
+            logger.exception("Password reset email could not be sent")
+            raise HTTPException(
+                status_code=503,
+                detail="We could not send the reset email. Please try again later.",
+            )
+
+    return {
+        "message": "If an active Shortie account exists for that email, a password reset link has been sent. Check your inbox and spam folder."
+    }
+
+
+
+@app.post("/api/auth/reset-password")
+async def reset_password(data: ResetPasswordRequest):
+    """Validate and consume a reset token, then replace the account password."""
+    if not re.search(r"[A-Za-z]", data.new_password) or not re.search(r"\d", data.new_password):
+        raise HTTPException(
+            status_code=400,
+            detail="Password must contain at least one letter and one number.",
+        )
+
+    now = datetime.now(timezone.utc)
+    token_hash = hashlib.sha256(data.token.encode("utf-8")).hexdigest()
+
+    # Calculate the password hash before opening the transaction.
+    new_password_hash = password_hash.hash(data.new_password)
+
+    async def reset_with_transaction(session):
+        reset_record = await password_reset_tokens.find_one_and_delete(
+            {
+                "token_hash": token_hash,
+                "expires_at": {"$gt": now},
+            },
+            session=session,
+        )
+
+        if not reset_record:
+            raise HTTPException(
+                status_code=400,
+                detail="This reset link has expired or has already been used. Request a new link.",
+            )
+
+        try:
+            user_id = ObjectId(reset_record["user_id"])
+        except Exception:
+            raise HTTPException(
+                status_code=400,
+                detail="This reset link is invalid. Request a new link.",
+            )
+
+        result = await users.update_one(
+            {"_id": user_id, "is_active": True},
+            {
+                "$set": {
+                    "password_hash": new_password_hash
+                },
+                "$inc": {"token_version": 1},
+            },
+            session=session,
+        )
+
+        if result.modified_count != 1:
+            raise HTTPException(
+                status_code=400,
+                detail="This account is unavailable. Request a new reset link.",
+            )
+
+        await password_reset_tokens.delete_many(
+            {"user_id": str(user_id)},
+            session=session,
+        )
+
+    async with client.start_session() as session:
+        await session.with_transaction(reset_with_transaction)
+
+    return {
+        "message": "Your password has been reset successfully. You can now log in."
+    }
+
+
+@app.post("/api/auth/google/code")
+async def google_auth_code(data: GoogleCodeAuthRequest):
+    """Authenticate a custom frontend button using Google's supported OAuth code flow."""
+    id_token_value = exchange_google_authorization_code(data.code)
+    # Reuse the existing verified Google account creation/linking logic.
+    return await google_auth(GoogleAuthRequest(
+        credential=id_token_value,
+        terms_accepted=data.terms_accepted,
+    ))
 
 
 @app.post("/api/auth/signup", status_code=201)
@@ -434,7 +1612,7 @@ async def login(data: LoginRequest):
 
     return {
         "message": "Login successful",
-        "access_token": make_token(str(user["_id"])),
+        "access_token": make_token(str(user["_id"]),user.get("token_version", 0),),
         "token_type": "bearer",
         "user": safe_user(user),
     }
@@ -443,6 +1621,355 @@ async def login(data: LoginRequest):
 @app.get("/api/auth/me")
 async def current_user(user: dict = Depends(get_current_user)):
     return {"user": user}
+
+
+@app.get("/api/settings/link-defaults")
+async def get_link_defaults(user: dict = Depends(get_current_user)):
+    preferences = await get_link_preferences(user["id"])
+    return {
+        **preferences,
+        "malicious_url_check_available": False,
+        "malicious_url_check_message": (
+            "URL reputation checking is not configured. This preference is saved, "
+            "but destinations are not scanned or blocked."
+        ),
+    }
+
+
+@app.patch("/api/settings/link-defaults")
+async def update_link_defaults(
+    data: LinkDefaultsUpdateRequest,
+    user: dict = Depends(get_current_user),
+):
+    changes = data.model_dump(exclude_unset=True)
+    if not changes or any(value is None for value in changes.values()):
+        raise HTTPException(422, "Provide at least one valid link preference.")
+    user_object_id = ObjectId(user["id"])
+    account = await users.find_one({"_id": user_object_id}, {"preferences": 1})
+    if not account:
+        raise HTTPException(404, "Account not found.")
+    stored = account.get("preferences", {})
+    preferences = {
+        **DEFAULT_LINK_PREFERENCES,
+        **(stored if isinstance(stored, dict) else {}),
+        **changes,
+    }
+    await users.update_one(
+        {"_id": user_object_id},
+        {"$set": {"preferences": preferences}},
+    )
+    saved = await get_link_preferences(user["id"])
+    return {
+        "message": (
+            "Link defaults saved. URL reputation checking is unavailable, "
+            "so destinations are not scanned or blocked."
+        ),
+        **saved,
+        "malicious_url_check_available": False,
+        "malicious_url_check_message": (
+            "URL reputation checking is not configured. This preference is saved, "
+            "but destinations are not scanned or blocked."
+        ),
+    }
+
+
+@app.get("/api/campaigns")
+async def list_campaigns(
+    user: dict = Depends(require_api_scope("campaigns:read")),
+):
+    cursor = campaigns.find({"owner_id": user["id"]}).sort("created_at", -1)
+    return {
+        "campaigns": [
+            await campaign_response(item, user["id"])
+            async for item in cursor
+        ]
+    }
+
+
+@app.post("/api/campaigns", status_code=201)
+async def create_campaign(
+    data: CampaignCreateRequest,
+    user: dict = Depends(require_api_scope("campaigns:write")),
+):
+    name = data.name.strip()
+    if not name:
+        raise HTTPException(400, "Campaign name cannot be empty.")
+    link_ids = await validate_campaign_links(data.link_ids, user["id"])
+    now = datetime.now(timezone.utc)
+    document = {
+        "owner_id": user["id"],
+        "name": name,
+        "description": data.description.strip(),
+        "channel": data.channel,
+        "status": data.status,
+        "link_ids": link_ids,
+        "created_at": now,
+        "updated_at": now,
+    }
+    result = await campaigns.insert_one(document)
+    document["_id"] = result.inserted_id
+    return {
+        "campaign": await campaign_response(document, user["id"]),
+        "message": "Campaign created.",
+    }
+
+
+@app.patch("/api/campaigns/{campaign_id}")
+async def update_campaign(
+    campaign_id: str,
+    data: CampaignUpdateRequest,
+    user: dict = Depends(require_api_scope("campaigns:write")),
+):
+    if not ObjectId.is_valid(campaign_id):
+        raise HTTPException(400, "Invalid campaign ID.")
+    query = {"_id": ObjectId(campaign_id), "owner_id": user["id"]}
+    existing = await campaigns.find_one(query)
+    if not existing:
+        raise HTTPException(404, "Campaign not found.")
+    supplied = data.model_dump(exclude_unset=True)
+    if not supplied:
+        raise HTTPException(400, "No campaign changes supplied.")
+    changes = {}
+    if "name" in supplied:
+        name = (supplied["name"] or "").strip()
+        if not name:
+            raise HTTPException(400, "Campaign name cannot be empty.")
+        changes["name"] = name
+    if "description" in supplied:
+        if supplied["description"] is None:
+            raise HTTPException(400, "Campaign description cannot be null.")
+        changes["description"] = supplied["description"].strip()
+    if "channel" in supplied:
+        if supplied["channel"] is None:
+            raise HTTPException(400, "Campaign channel cannot be null.")
+        changes["channel"] = supplied["channel"]
+    if "status" in supplied:
+        if supplied["status"] is None:
+            raise HTTPException(400, "Campaign status cannot be null.")
+        changes["status"] = supplied["status"]
+    if "link_ids" in supplied:
+        if supplied["link_ids"] is None:
+            raise HTTPException(400, "Campaign links cannot be null.")
+        changes["link_ids"] = await validate_campaign_links(
+            supplied["link_ids"],
+            user["id"],
+        )
+    changes["updated_at"] = datetime.now(timezone.utc)
+    updated = await campaigns.find_one_and_update(
+        query,
+        {"$set": changes},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not updated:
+        raise HTTPException(404, "Campaign not found.")
+    return {
+        "campaign": await campaign_response(updated, user["id"]),
+        "message": "Campaign updated.",
+    }
+
+
+@app.delete("/api/campaigns/{campaign_id}")
+async def delete_campaign(
+    campaign_id: str,
+    user: dict = Depends(require_api_scope("campaigns:write")),
+):
+    if not ObjectId.is_valid(campaign_id):
+        raise HTTPException(400, "Invalid campaign ID.")
+    result = await campaigns.delete_one({
+        "_id": ObjectId(campaign_id),
+        "owner_id": user["id"],
+    })
+    if not result.deleted_count:
+        raise HTTPException(404, "Campaign not found.")
+    return {"message": "Campaign deleted."}
+
+
+@app.get("/api/api-keys")
+async def list_api_keys(user: dict = Depends(get_current_user)):
+    cursor = api_keys.find({"owner_id": user["id"]}).sort("created_at", -1)
+    return {
+        "api_keys": [serialize_api_key(item) async for item in cursor]
+    }
+
+
+@app.post("/api/api-keys", status_code=201)
+async def create_api_key(
+    data: APIKeyCreateRequest,
+    user: dict = Depends(get_current_user),
+):
+    name = data.name.strip()
+    if len(name) < 2:
+        raise HTTPException(422, "API key name must contain at least 2 characters.")
+    scopes = validate_api_key_scopes(data.scopes)
+    raw_key = "sk_live_" + secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+    document = {
+        "owner_id": user["id"],
+        "name": name,
+        "key_prefix": raw_key[:16],
+        "last_four": raw_key[-4:],
+        "key_hash": hash_api_key(raw_key),
+        "scopes": scopes,
+        "active": True,
+        "created_at": now,
+        "last_used_at": None,
+        "revoked_at": None,
+        "usage_month": now.strftime("%Y-%m"),
+        "monthly_usage": 0,
+        "rate_window_start": now,
+        "rate_window_count": 0,
+    }
+    result = await api_keys.insert_one(document)
+    document["_id"] = result.inserted_id
+    return {
+        "message": "API key created. Copy the secret now; it will not be shown again.",
+        "api_key": {**serialize_api_key(document), "key": raw_key},
+    }
+
+
+@app.delete("/api/api-keys/{key_id}")
+async def revoke_api_key(key_id: str, user: dict = Depends(get_current_user)):
+    if not ObjectId.is_valid(key_id):
+        raise HTTPException(404, "API key not found.")
+    result = await api_keys.update_one(
+        {"_id": ObjectId(key_id), "owner_id": user["id"]},
+        {
+            "$set": {
+                "active": False,
+                "revoked_at": datetime.now(timezone.utc),
+            }
+        },
+    )
+    if not result.matched_count:
+        raise HTTPException(404, "API key not found.")
+    return {"message": "API key revoked."}
+
+
+@app.patch("/api/api-keys/{key_id}/reactivate")
+async def reactivate_api_key(
+    key_id: str,
+    user: dict = Depends(get_current_user),
+):
+    if not ObjectId.is_valid(key_id):
+        raise HTTPException(404, "API key not found.")
+    result = await api_keys.update_one(
+        {"_id": ObjectId(key_id), "owner_id": user["id"]},
+        {
+            "$set": {"active": True, "revoked_at": None},
+        },
+    )
+    if not result.matched_count:
+        raise HTTPException(404, "API key not found.")
+    return {"message": "API key reactivated."}
+
+
+@app.delete("/api/api-keys/{key_id}/permanent")
+async def permanently_delete_api_key(
+    key_id: str,
+    user: dict = Depends(get_current_user),
+):
+    if not ObjectId.is_valid(key_id):
+        raise HTTPException(404, "API key not found.")
+    result = await api_keys.delete_one({
+        "_id": ObjectId(key_id),
+        "owner_id": user["id"],
+    })
+    if not result.deleted_count:
+        raise HTTPException(404, "API key not found.")
+    return {"message": "API key permanently deleted."}
+
+
+@app.get("/api/webhooks")
+async def list_webhooks(user: dict = Depends(get_current_user)):
+    cursor = webhooks.find({"owner_id": user["id"]}).sort("created_at", -1)
+    return {"webhooks": [serialize_webhook(item) async for item in cursor]}
+
+
+@app.post("/api/webhooks", status_code=201)
+async def create_webhook(
+    data: WebhookCreateRequest,
+    user: dict = Depends(get_current_user),
+):
+    events = sorted(set(data.events))
+    if len(events) != len(data.events):
+        raise HTTPException(422, "Webhook events must not contain duplicates.")
+    unsupported = sorted(set(events) - WEBHOOK_EVENTS)
+    if unsupported:
+        raise HTTPException(
+            422,
+            f"Unsupported webhook event: {', '.join(unsupported)}",
+        )
+    secret_nonce = secrets.token_urlsafe(32)
+    signing_secret = derive_webhook_secret(secret_nonce)
+    try:
+        await resolve_public_webhook_target(data.url.strip())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    now = datetime.now(timezone.utc)
+    document = {
+        "owner_id": user["id"],
+        "url": data.url.strip(),
+        "events": events,
+        "secret_nonce": secret_nonce,
+        "active": True,
+        "created_at": now,
+        "last_test_at": None,
+    }
+    result = await webhooks.insert_one(document)
+    document["_id"] = result.inserted_id
+    return {
+        "message": "Webhook created. Copy its signing secret now; it will not be shown again.",
+        "webhook": serialize_webhook(document),
+        "signing_secret": signing_secret,
+    }
+
+
+@app.post("/api/webhooks/{webhook_id}/test", status_code=202)
+async def test_webhook(
+    webhook_id: str,
+    user: dict = Depends(get_current_user),
+):
+    if not ObjectId.is_valid(webhook_id):
+        raise HTTPException(404, "Webhook not found.")
+    webhook = await webhooks.find_one({
+        "_id": ObjectId(webhook_id),
+        "owner_id": user["id"],
+        "active": True,
+    })
+    if not webhook:
+        raise HTTPException(404, "Webhook not found.")
+    now = datetime.now(timezone.utc)
+    event_id = await enqueue_webhook_deliveries(
+        user["id"],
+        WEBHOOK_TEST_EVENT,
+        {"message": "This is a Shortie test delivery."},
+        [webhook],
+    )
+    await webhooks.update_one(
+        {"_id": webhook["_id"], "owner_id": user["id"]},
+        {"$set": {"last_test_at": now}},
+    )
+    return {
+        "message": "Test event queued for delivery.",
+        "event_id": event_id,
+        "status": "pending",
+    }
+
+
+@app.delete("/api/webhooks/{webhook_id}")
+async def delete_webhook(
+    webhook_id: str,
+    user: dict = Depends(get_current_user),
+):
+    if not ObjectId.is_valid(webhook_id):
+        raise HTTPException(404, "Webhook not found.")
+    result = await webhooks.delete_one({
+        "_id": ObjectId(webhook_id),
+        "owner_id": user["id"],
+    })
+    if not result.deleted_count:
+        raise HTTPException(404, "Webhook not found.")
+    return {"message": "Webhook deleted."}
 
 
 @app.patch("/api/settings/profile")
@@ -468,7 +1995,15 @@ async def change_password(data: ChangePasswordRequest, user: dict = Depends(get_
         raise HTTPException(400, "Current password is incorrect")
     if password_hash.verify(data.new_password, account["password_hash"]):
         raise HTTPException(400, "New password must be different from the current password")
-    await users.update_one({"_id": ObjectId(user["id"])}, {"$set": {"password_hash": password_hash.hash(data.new_password)}})
+    await users.update_one(
+    {"_id": ObjectId(user["id"])},
+    {
+        "$set": {
+            "password_hash": password_hash.hash(data.new_password)
+        },
+        "$inc": {"token_version": 1},
+    },
+)
     return {"message": "Password changed successfully"}
 
 
@@ -477,7 +2012,7 @@ async def change_password(data: ChangePasswordRequest, user: dict = Depends(get_
 @app.post("/api/links", status_code=201)
 async def create_link(
     data: CreateLinkRequest,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_api_scope("links:write")),
 ):
     destination = str(data.original_url)
 
@@ -485,9 +2020,15 @@ async def create_link(
         raise HTTPException(400, "Only HTTP and HTTPS URLs are allowed")
 
     today = datetime.now(timezone.utc).date()
-    if data.expiry_date and data.expiry_date < today:
+    expiry_date = data.expiry_date
+    if expiry_date is None:
+        preferences = await get_link_preferences(user["id"])
+        default_expiry = preferences["default_expiry"]
+        if default_expiry != "never":
+            expiry_date = today + timedelta(days=int(default_expiry))
+    if expiry_date and expiry_date < today:
         raise HTTPException(400, "Expiry date cannot be in the past")
-    if data.activation_date and data.expiry_date and data.activation_date > data.expiry_date:
+    if data.activation_date and expiry_date and data.activation_date > expiry_date:
         raise HTTPException(400, "Activation date cannot be after expiry date")
 
     if data.alias:
@@ -501,8 +2042,8 @@ async def create_link(
         code = generate_code()
 
     expiry = (
-        datetime.combine(data.expiry_date, time.max, tzinfo=timezone.utc)
-        if data.expiry_date else None
+        datetime.combine(expiry_date, time.max, tzinfo=timezone.utc)
+        if expiry_date else None
     )
     activation = (
         datetime.combine(data.activation_date, time.min, tzinfo=timezone.utc)
@@ -525,6 +2066,16 @@ async def create_link(
         try:
             result = await links.insert_one(document)
             document["_id"] = result.inserted_id
+            await safely_enqueue_link_event(
+                user["id"],
+                "link.created",
+                {
+                    "link_id": str(document["_id"]),
+                    "code": document["code"],
+                    "short_url": f"{SHORTIE_BASE_URL}/s/{document['code']}",
+                    "created_at": document["created_at"].isoformat(),
+                },
+            )
             return link_response(document)
         except DuplicateKeyError:
             if data.alias:
@@ -539,7 +2090,7 @@ async def create_link(
 @app.post("/api/links/bulk-import")
 async def bulk_import_links(
     file: UploadFile = File(...),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_api_scope("links:write")),
 ):
     """Create up to 200 links from a CSV file."""
     if not file.filename or not file.filename.lower().endswith(".csv"):
@@ -570,6 +2121,7 @@ async def bulk_import_links(
 
     results = []
     created_count = 0
+    preferences = await get_link_preferences(user["id"])
     for row_number, raw in enumerate(rows, start=2):
         row = {str(k).strip().lower(): (v or "").strip() for k, v in raw.items() if k}
         try:
@@ -591,6 +2143,15 @@ async def bulk_import_links(
                 if expiry_day < datetime.now(timezone.utc).date():
                     raise ValueError("expiry_date cannot be in the past")
                 expiry = datetime.combine(expiry_day, time.max, tzinfo=timezone.utc)
+            elif preferences["default_expiry"] != "never":
+                expiry_day = datetime.now(timezone.utc).date() + timedelta(
+                    days=int(preferences["default_expiry"])
+                )
+                expiry = datetime.combine(
+                    expiry_day,
+                    time.max,
+                    tzinfo=timezone.utc,
+                )
             code = alias or generate_code()
             document = {
                 "code": code, "original_url": destination, "owner_id": user["id"],
@@ -601,6 +2162,16 @@ async def bulk_import_links(
                 try:
                     inserted = await links.insert_one(document)
                     document["_id"] = inserted.inserted_id
+                    await safely_enqueue_link_event(
+                        user["id"],
+                        "link.created",
+                        {
+                            "link_id": str(document["_id"]),
+                            "code": document["code"],
+                            "short_url": f"{SHORTIE_BASE_URL}/s/{document['code']}",
+                            "created_at": document["created_at"].isoformat(),
+                        },
+                    )
                     results.append({"row": row_number, "status": "created", "link": link_response(document)})
                     created_count += 1
                     break
@@ -617,7 +2188,7 @@ async def bulk_import_links(
 
 
 @app.get("/api/links")
-async def list_links(user: dict = Depends(get_current_user)):
+async def list_links(user: dict = Depends(require_api_scope("links:read"))):
     cursor = (
         links.find({"owner_id": user["id"]})
         .sort("created_at", -1)
@@ -632,7 +2203,7 @@ async def list_links(user: dict = Depends(get_current_user)):
 async def update_link(
     link_id: str,
     data: UpdateLinkRequest,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_api_scope("links:write")),
 ):
     if not ObjectId.is_valid(link_id):
         raise HTTPException(400, "Invalid link ID")
@@ -694,19 +2265,28 @@ async def update_link(
 @app.delete("/api/links/{link_id}", response_model=DeleteLinkResponse)
 async def delete_link(
     link_id: str,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_api_scope("links:write")),
 ):
     if not ObjectId.is_valid(link_id):
         raise HTTPException(400, "Invalid link ID")
 
-    result = await links.delete_one({
+    deleted_link = await links.find_one_and_delete({
         "_id": ObjectId(link_id),
         "owner_id": user["id"],
     })
 
-    if result.deleted_count == 0:
+    if not deleted_link:
         raise HTTPException(404, "Link not found")
 
+    await safely_enqueue_link_event(
+        user["id"],
+        "link.deleted",
+        {
+            "link_id": str(deleted_link["_id"]),
+            "code": deleted_link["code"],
+            "deleted_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
     return {"message": "Link deleted"}
 
 
@@ -715,7 +2295,7 @@ async def delete_link(
 @app.post("/api/qr-codes", status_code=201)
 async def save_qr_code(
     data: SaveQRCodeRequest,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_api_scope("qr_codes:write")),
 ):
     if ObjectId.is_valid(data.link_id):
         link = await links.find_one({
@@ -764,7 +2344,7 @@ async def save_qr_code(
 
 
 @app.get("/api/qr-codes")
-async def list_qr_codes(user: dict = Depends(get_current_user)):
+async def list_qr_codes(user: dict = Depends(require_api_scope("qr_codes:read"))):
     cursor = (
         qr_codes.find({"owner_id": user["id"]})
         .sort("created_at", -1)
@@ -778,7 +2358,7 @@ async def list_qr_codes(user: dict = Depends(get_current_user)):
 @app.delete("/api/qr-codes/{qr_id}")
 async def delete_qr_code(
     qr_id: str,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_api_scope("qr_codes:write")),
 ):
     if not ObjectId.is_valid(qr_id):
         raise HTTPException(400, "Invalid QR code ID")
@@ -893,6 +2473,23 @@ async def get_analytics_events(
     ]
 
 
+async def apply_bot_filter(owner_id: str, events: list[dict]):
+    preferences = await get_link_preferences(owner_id)
+    bot_events = [
+        event for event in events
+        if classify_user_agent(event.get("user_agent"))["device"] == "Bot"
+    ]
+    visible_events = (
+        [
+            event for event in events
+            if classify_user_agent(event.get("user_agent"))["device"] != "Bot"
+        ]
+        if preferences["filter_known_bots"]
+        else events
+    )
+    return visible_events, len(bot_events), preferences["filter_known_bots"]
+
+
 # Analytics overview
 
 @app.get("/api/analytics/overview")
@@ -900,29 +2497,32 @@ async def analytics_overview(
     period: str = "daily",
     start_date: str | None = None,
     end_date: str | None = None,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_api_scope("analytics:read")),
 ):
     start, end = analytics_date_range(period, start_date, end_date)
     events = await get_analytics_events(user["id"], start, end)
+    metric_events, bot_count, filter_bots = await apply_bot_filter(
+        user["id"],
+        events,
+    )
 
     devices = Counter()
     browsers = Counter()
-    bots = 0
 
-    for event in events:
+    for event in metric_events:
         result = classify_user_agent(event.get("user_agent"))
         devices[result["device"]] += 1
         browsers[result["browser"]] += 1
-        if result["device"] == "Bot":
-            bots += 1
 
     return {
         "period": period,
         "start": start.isoformat(),
         "end": end.isoformat(),
-        "total_clicks": len(events),
-        "bots_filtered": bots,
-        "human_clicks": len(events) - bots,
+        "total_clicks": len(metric_events),
+        "bots_filtered": bot_count if filter_bots else 0,
+        "bot_clicks": bot_count,
+        "human_clicks": len(events) - bot_count,
+        "filter_known_bots": filter_bots,
         "devices": dict(devices),
         "browsers": dict(browsers),
         "unique_visitors": None,
@@ -937,13 +2537,17 @@ async def analytics_clicks(
     period: str = "daily",
     start_date: str | None = None,
     end_date: str | None = None,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_api_scope("analytics:read")),
 ):
     start, end = analytics_date_range(period, start_date, end_date)
     events = await get_analytics_events(user["id"], start, end)
+    metric_events, bot_count, filter_bots = await apply_bot_filter(
+        user["id"],
+        events,
+    )
 
     counts = Counter()
-    for event in events:
+    for event in metric_events:
         clicked_at = event["clicked_at"]
         if clicked_at.tzinfo is None:
             clicked_at = clicked_at.replace(tzinfo=timezone.utc)
@@ -956,7 +2560,12 @@ async def analytics_clicks(
         output.append({"date": key, "clicks": counts.get(key, 0)})
         current_day += timedelta(days=1)
 
-    return {"period": period, "data": output}
+    return {
+        "period": period,
+        "data": output,
+        "bot_clicks": bot_count,
+        "filter_known_bots": filter_bots,
+    }
 
 
 # Top links
@@ -967,36 +2576,21 @@ async def analytics_top_links(
     period: str = "daily",
     start_date: str | None = None,
     end_date: str | None = None,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_api_scope("analytics:read")),
 ):
     start, end = analytics_date_range(period, start_date, end_date)
-
-    pipeline = [
-        {
-            "$match": {
-                "owner_id": user["id"],
-                "clicked_at": {"$gte": start, "$lt": end},
-            }
-        },
-        {
-            "$group": {
-                "_id": "$link_id",
-                "code": {"$first": "$code"},
-                "clicks": {"$sum": 1},
-            }
-        },
-        {"$sort": {"clicks": -1}},
-        {"$limit": 10},
-    ]
-
-    # FIX: Await aggregate() before reading the async cursor.
-    cursor = await click_events.aggregate(pipeline)
-    results = await cursor.to_list(length=10)
+    events = await get_analytics_events(user["id"], start, end)
+    metric_events, _, _ = await apply_bot_filter(user["id"], events)
+    click_counts = Counter(
+        event.get("link_id")
+        for event in metric_events
+        if event.get("link_id")
+    )
+    results = click_counts.most_common(10)
 
     output = []
 
-    for item in results:
-        link_id = item.get("_id")
+    for link_id, count in results:
 
         if not link_id or not ObjectId.is_valid(link_id):
             continue
@@ -1011,7 +2605,7 @@ async def analytics_top_links(
                 "code": link["code"],
                 "short_url": f"{SHORTIE_BASE_URL}/s/{link['code']}",
                 "original_url": link["original_url"],
-                "clicks": item["clicks"],
+                "clicks": count,
             })
 
     return {"links": output}
@@ -1024,7 +2618,7 @@ async def analytics_export(
     period: str = "daily",
     start_date: str | None = None,
     end_date: str | None = None,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_api_scope("analytics:read")),
 ):
     start, end = analytics_date_range(
         period, start_date, end_date
@@ -1049,6 +2643,7 @@ async def analytics_export(
             "clicked_at": {"$gte": start, "$lt": end},
         }).sort("clicked_at", 1)
     ]
+    metric_events, _, _ = await apply_bot_filter(user["id"], events)
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -1062,7 +2657,7 @@ async def analytics_export(
         "User Agent",
     ])
 
-    for event in events:
+    for event in metric_events:
         link = links_by_id.get(event.get("link_id"))
 
         if not link:
@@ -1122,33 +2717,31 @@ async def verify_link_password(
         raise HTTPException(401, "Incorrect password. Try again.")
 
     cookie_value, visitor_id, is_new_visitor = visitor_fingerprint(request)
-    click_event = {
-        "link_id": str(link["_id"]), "code": link["code"],
-        "owner_id": link["owner_id"], "clicked_at": now,
-        "visitor_id": visitor_id,
-        "referrer": request.headers.get("referer"),
-        "user_agent": request.headers.get("user-agent"),
-    }
-    try:
-        await click_events.insert_one(click_event)
-        await links.update_one({"_id": link["_id"]}, {"$inc": {"clicks": 1}})
-    except Exception:
-        logger.exception("Failed to record protected link click for %s", code)
+    await record_click_event(link, request, visitor_id, now)
     response = JSONResponse({"destination_url": link["original_url"]})
     return set_visitor_cookie(response, cookie_value, is_new_visitor)
 
 
 # Dashboard metric: distinct tracked visitors for the signed-in owner's links.
 @app.get("/api/analytics/unique-visitors")
-async def unique_visitors(user: dict = Depends(get_current_user)):
-    pipeline = [
-        {"$match": {"owner_id": user["id"], "visitor_id": {"$exists": True, "$ne": None}}},
-        {"$group": {"_id": "$visitor_id"}},
-        {"$count": "total"},
+async def unique_visitors(
+    user: dict = Depends(require_api_scope("analytics:read")),
+):
+    events = [
+        event async for event in click_events.find({
+            "owner_id": user["id"],
+            "visitor_id": {"$exists": True, "$ne": None},
+        })
     ]
-    cursor = await click_events.aggregate(pipeline)
-    result = await cursor.to_list(length=1)
-    return {"unique_visitors": result[0]["total"] if result else 0}
+    metric_events, _, filter_bots = await apply_bot_filter(user["id"], events)
+    return {
+        "unique_visitors": len({
+            event["visitor_id"]
+            for event in metric_events
+            if event.get("visitor_id")
+        }),
+        "filter_known_bots": filter_bots,
+    }
 
 
 # Redirect and click tracking
@@ -1183,28 +2776,13 @@ async def redirect_short_link(code: str, request: Request):
         )
 
     cookie_value, visitor_id, is_new_visitor = visitor_fingerprint(request)
-    click_event = {
-        "link_id": str(link["_id"]),
-        "code": link["code"],
-        "owner_id": link["owner_id"],
-        "clicked_at": datetime.now(timezone.utc),
-        "visitor_id": visitor_id,
-        "referrer": request.headers.get("referer"),
-        "user_agent": request.headers.get("user-agent"),
-    }
-
-    try:
-        await click_events.insert_one(click_event)
-    except Exception:
-        logger.exception("Failed to save click event for %s", code)
-
-    try:
-        await links.update_one(
-            {"_id": link["_id"]},
-            {"$inc": {"clicks": 1}},
-        )
-    except Exception:
-        logger.exception("Failed to increment click counter for %s", code)
+    await record_click_event(
+        link,
+        request,
+        visitor_id,
+        datetime.now(timezone.utc),
+        increment_if_unrecorded=True,
+    )
 
     response = RedirectResponse(
         url=link["original_url"],
@@ -1250,7 +2828,7 @@ def serialize_domain(doc: dict) -> dict:
 
 
 @app.get("/api/domains")
-async def list_domains(user: dict = Depends(get_current_user)):
+async def list_domains(user: dict = Depends(require_api_scope("domains:read"))):
     cursor = domains.find({"owner_id": user["id"]}).sort("created_at", -1)
     return {"domains": [serialize_domain(d) async for d in cursor]}
 

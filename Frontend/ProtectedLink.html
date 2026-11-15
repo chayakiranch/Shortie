@@ -65,14 +65,14 @@
       </section>
     </main>
 
+    <script src="config.js"></script>
     <script>
       const passwordForm = document.getElementById("passwordForm");
       const passwordInput = document.getElementById("password");
       const errorMessage = document.getElementById("errorMessage");
       const continueButton = document.getElementById("continueButton");
 
-      // Backend address
-      const API_URL = "https://shortie-5a5a.onrender.com";
+      const API_URL = window.API_URL;
 
       // Short code comes from ProtectedLink.html?code=abc123
       const params = new URLSearchParams(window.location.search);

@@ -52,6 +52,36 @@
               required
             />
           </div>
+          <fieldset class="scope-picker">
+            <legend>Permissions (select at least one)</legend>
+            <div class="scope-options">
+              <label class="scope-option"
+                ><input type="checkbox" name="scope" value="links:read" checked />
+                Read links</label
+              ><label class="scope-option"
+                ><input type="checkbox" name="scope" value="links:write" />
+                Create, update and delete links</label
+              ><label class="scope-option"
+                ><input type="checkbox" name="scope" value="campaigns:read" />
+                Read campaigns</label
+              ><label class="scope-option"
+                ><input type="checkbox" name="scope" value="campaigns:write" />
+                Manage campaigns</label
+              ><label class="scope-option"
+                ><input type="checkbox" name="scope" value="analytics:read" />
+                Read analytics</label
+              ><label class="scope-option"
+                ><input type="checkbox" name="scope" value="qr_codes:read" />
+                Read QR codes</label
+              ><label class="scope-option"
+                ><input type="checkbox" name="scope" value="qr_codes:write" />
+                Manage QR codes</label
+              ><label class="scope-option"
+                ><input type="checkbox" name="scope" value="domains:read" />
+                Read domains</label
+              >
+            </div>
+          </fieldset>
           <button class="btn btn-primary" id="createBtn" type="submit">
             Create key
           </button>
@@ -65,7 +95,7 @@
             Copy key
           </button>
         </div>
-        <p class="help">
+        <p class="help" id="revealHelp">
           Save this key now. Only its hash is stored, so the full key cannot be
           shown again.
         </p>
@@ -138,8 +168,8 @@
           <div>
             <h2>Webhooks</h2>
             <p>
-              Configure endpoints to receive test events. Real link-event
-              delivery can be added to link workflows separately.
+              Receive signed link events with persistent retries. Test
+              deliveries use the same signature format.
             </p>
           </div>
           <button class="btn btn-primary" id="addWebhookBtn">
@@ -169,6 +199,13 @@
               deleted</label
             >
           </fieldset>
+          <p class="help">
+            Deliveries include <code>X-Shortie-Event-Id</code>,
+            <code>X-Shortie-Event</code>, <code>X-Shortie-Timestamp</code> and
+            <code>X-Shortie-Signature</code>. Verify the signature as
+            HMAC-SHA256 of the timestamp, a period, and the raw request body;
+            reject timestamps older than five minutes.
+          </p>
           <div class="form-actions">
             <button type="button" class="btn" id="cancelWebhookBtn">
               Cancel</button
@@ -202,20 +239,20 @@
       <section class="panel use-panel">
         <h2>Use your key</h2>
         <pre><code>GET /api/links
-Authorization: Bearer YOUR_API_KEY</code></pre>
+X-API-Key: YOUR_API_KEY</code></pre>
         <p>Keep API keys secret. Revoke a key immediately if it is exposed.</p>
       </section>
     </main>
+    <script src="config.js"></script>
     <script>
       (() => {
-        const API_BASE = (
-          window.SHORTIE_API_BASE || window.location.origin
-        ).replace(/\/$/, "");
+        const API_BASE = window.API_URL;
         const $ = (id) => document.getElementById(id);
         let token = sessionStorage.getItem("shortie_token") || "";
         let keys = [],
           webhooks = [],
-          revealedSecret = "";
+          revealedSecret = "",
+          revealedSecretType = "key";
         const esc = (v) =>
           String(v ?? "").replace(
             /[&<>"']/g,
@@ -278,8 +315,11 @@ Authorization: Bearer YOUR_API_KEY</code></pre>
               throw new Error(
                 "Authentication failed (401). Your login token may have expired. Log out, log in again, then retry.",
               );
+            const detail = Array.isArray(data.detail)
+              ? data.detail.map((item) => item.msg).filter(Boolean).join("; ")
+              : data.detail;
             throw new Error(
-              data.detail ||
+              detail ||
                 data.message ||
                 `Request failed (${response.status})`,
             );
@@ -357,22 +397,33 @@ Authorization: Bearer YOUR_API_KEY</code></pre>
           e.preventDefault();
           clearAlert();
           const name = $("keyName").value.trim();
+          const scopes = [
+            ...$("createForm").querySelectorAll(
+              'input[name="scope"]:checked',
+            ),
+          ].map((input) => input.value);
           if (name.length < 2)
             return alertMsg(
               "Key name must contain at least 2 characters.",
               "error",
             );
+          if (!scopes.length)
+            return alertMsg("Select at least one API key permission.", "error");
           const b = $("createBtn");
           b.disabled = true;
           b.textContent = "Creating…";
           try {
             const d = await api("/api/api-keys", {
               method: "POST",
-              body: JSON.stringify({ name }),
+              body: JSON.stringify({ name, scopes }),
             });
             revealedSecret = d.api_key.key;
+            revealedSecretType = "key";
             $("newSecret").textContent = revealedSecret;
             $("revealTitle").textContent = "Key created: " + d.api_key.name;
+            $("revealHelp").textContent =
+              "Save this key now. Only its hash is stored, so the full key cannot be shown again.";
+            $("copyKeyBtn").textContent = "Copy key";
             $("revealPanel").hidden = false;
             $("keyName").value = "";
             alertMsg(
@@ -394,7 +445,12 @@ Authorization: Bearer YOUR_API_KEY</code></pre>
           try {
             await navigator.clipboard.writeText(revealedSecret);
             $("copyKeyBtn").textContent = "Copied!";
-            setTimeout(() => ($("copyKeyBtn").textContent = "Copy key"), 1300);
+            setTimeout(
+              () =>
+                ($("copyKeyBtn").textContent =
+                  revealedSecretType === "webhook" ? "Copy secret" : "Copy key"),
+              1300,
+            );
           } catch {
             alertMsg(
               "Clipboard permission unavailable. Select the key and copy it manually.",
@@ -404,6 +460,7 @@ Authorization: Bearer YOUR_API_KEY</code></pre>
         });
         $("dismissRevealBtn").addEventListener("click", () => {
           revealedSecret = "";
+          revealedSecretType = "key";
           $("newSecret").textContent = "";
           $("revealPanel").hidden = true;
         });
@@ -487,7 +544,23 @@ Authorization: Bearer YOUR_API_KEY</code></pre>
                 events,
               }),
             });
-            alertMsg(d.message || "Webhook saved.");
+            revealedSecret = d.signing_secret || "";
+            if (revealedSecret) {
+              revealedSecretType = "webhook";
+              $("newSecret").textContent = revealedSecret;
+              $("revealTitle").textContent = "Webhook signing secret";
+              $("revealHelp").textContent =
+                "Save this signing secret now. It cannot be shown again.";
+              $("copyKeyBtn").textContent = "Copy secret";
+              $("revealPanel").hidden = false;
+              $("revealPanel").scrollIntoView({
+                behavior: "smooth",
+                block: "center",
+              });
+            }
+            alertMsg(
+              d.message || "Webhook saved. Copy its signing secret now.",
+            );
             $("webhookForm").reset();
             $("webhookForm").hidden = true;
             await loadWebhooks();
