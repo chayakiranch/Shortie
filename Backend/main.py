@@ -1348,7 +1348,9 @@ def exchange_google_authorization_code(code: str) -> str:
 
 @app.get("/")
 async def home():
-     return FileResponse(FRONTEND_DIR / "index.html")
+    return FileResponse(
+        FRONTEND_DIR / "index.html", headers={"Cache-Control": "no-cache"}
+    )
 
 
 @app.get("/health")
@@ -2993,8 +2995,17 @@ async def delete_domain(domain_id: str, user: dict = Depends(get_current_user)):
 
 # IMPORTANT: mount the frontend only AFTER registering all API routes.
 # A root StaticFiles mount placed earlier intercepts API POST requests and returns 405.
+class FrontendStaticFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "Frontend"
 if FRONTEND_DIR.is_dir():
-    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
+    app.mount(
+        "/", FrontendStaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend"
+    )
 else:
     logger.warning("Frontend directory not found at %s; static frontend serving is disabled", FRONTEND_DIR)
