@@ -68,6 +68,9 @@ SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").lower() in {"1", "true", "yes"}
 SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "false").lower() in {"1", "true", "yes"}
 FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", SHORTIE_BASE_URL).rstrip("/")
 PASSWORD_RESET_TTL_MINUTES = 15
+GUEST_LINK_TTL_SECONDS = 300
+GUEST_LINK_RATE_LIMIT = 10
+GUEST_LINK_RATE_WINDOW_SECONDS = 60
 API_KEY_PEPPER = os.getenv("API_KEY_PEPPER", "").strip()
 WEBHOOK_SECRET_PEPPER = os.getenv("WEBHOOK_SECRET_PEPPER", "").strip()
 WEBHOOK_WORKER_POLL_SECONDS = max(
@@ -96,6 +99,8 @@ db = client[DATABASE_NAME]
 
 users = db["users"]
 links = db["links"]
+guest_links = db["guest_links"]
+guest_link_rate_windows = db["guest_link_rate_windows"]
 qr_codes = db["qr_codes"]
 click_events = db["click_events"]
 domains = db["domains"]
@@ -119,6 +124,8 @@ async def lifespan(app: FastAPI):
     await password_reset_tokens.create_index("expires_at", expireAfterSeconds=0)
     await password_reset_tokens.create_index("user_id")
     await domains.create_index([("owner_id", 1), ("domain", 1)], unique=True)
+    await guest_links.create_index("expires_at", expireAfterSeconds=0)
+    await guest_link_rate_windows.create_index("expires_at", expireAfterSeconds=0)
     await links.create_index("code", unique=True)
     await links.create_index([("owner_id", 1), ("created_at", -1)])
 
@@ -257,6 +264,10 @@ class UpdateProfileRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str = Field(min_length=1, max_length=128)
     new_password: str = Field(min_length=8, max_length=128)
+
+
+class CreateGuestLinkRequest(BaseModel):
+    original_url: HttpUrl
 
 
 class CreateLinkRequest(BaseModel):
@@ -2005,6 +2016,74 @@ async def change_password(data: ChangePasswordRequest, user: dict = Depends(get_
     },
 )
     return {"message": "Password changed successfully"}
+
+
+# Guest links use a separate namespace and expire independently of account links.
+@app.post("/api/guest-links", status_code=201)
+async def create_guest_link(data: CreateGuestLinkRequest, request: Request):
+    now = datetime.now(timezone.utc)
+    window = int(now.timestamp()) // GUEST_LINK_RATE_WINDOW_SECONDS
+    window_end = (window + 1) * GUEST_LINK_RATE_WINDOW_SECONDS
+    client_host = request.client.host if request.client else "unknown"
+    bucket = hmac.new(
+        JWT_SECRET.encode(),
+        f"guest-link:{window}:{client_host}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    try:
+        await guest_link_rate_windows.update_one(
+            {"_id": bucket, "count": {"$lt": GUEST_LINK_RATE_LIMIT}},
+            {
+                "$inc": {"count": 1},
+                "$setOnInsert": {
+                    "expires_at": datetime.fromtimestamp(window_end, timezone.utc),
+                },
+            },
+            upsert=True,
+        )
+    except DuplicateKeyError:
+        # A simultaneous first request may have created the bucket.
+        result = await guest_link_rate_windows.update_one(
+            {"_id": bucket, "count": {"$lt": GUEST_LINK_RATE_LIMIT}},
+            {"$inc": {"count": 1}},
+        )
+        if not result.matched_count:
+            raise HTTPException(
+                429,
+                "Too many temporary links. Try again in a moment.",
+                headers={"Retry-After": str(max(1, window_end - int(now.timestamp())))},
+            ) from None
+
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=GUEST_LINK_TTL_SECONDS)
+    for _ in range(5):
+        code = generate_code(12)
+        try:
+            await guest_links.insert_one({
+                "_id": code,
+                "original_url": str(data.original_url),
+                "expires_at": expires_at,
+            })
+        except DuplicateKeyError:
+            continue
+        return {
+            "short_url": f"{SHORTIE_BASE_URL}/g/{code}",
+            "expires_at": expires_at,
+        }
+    raise HTTPException(503, "Could not create a temporary link. Try again.")
+
+
+@app.get("/g/{code}", include_in_schema=False)
+async def redirect_guest_link(code: str):
+    cache_headers = {"Cache-Control": "no-store"}
+    link = await guest_links.find_one({
+        "_id": code,
+        "expires_at": {"$gt": datetime.now(timezone.utc)},
+    })
+    if not link:
+        raise HTTPException(
+            404, "This temporary link has expired or does not exist.", headers=cache_headers,
+        )
+    return RedirectResponse(link["original_url"], status_code=307, headers=cache_headers)
 
 
 # URL shortening and link management

@@ -174,7 +174,9 @@
             return;
           }
           sessionStorage.setItem("shortie_token", result.access_token);
-          window.location.href = "Dashboard.html";
+          window.location.href = sessionStorage.getItem("shortie_pending_url")
+            ? "ShortenURL.html"
+            : "Dashboard.html";
         } catch (error) {
           console.error("Google authentication request failed:", error);
           alert("Cannot connect to Shortie. Please try again.");
@@ -223,7 +225,9 @@
               return;
             }
             sessionStorage.setItem("shortie_token", result.access_token);
-            window.location.href = "Dashboard.html";
+            window.location.href = sessionStorage.getItem("shortie_pending_url")
+              ? "ShortenURL.html"
+              : "Dashboard.html";
           } catch (error) {
             console.error(error);
             alert("Cannot connect to Shortie. Check your backend.");

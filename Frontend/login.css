@@ -30,8 +30,10 @@ body {
 }
 
 .login-logo {
+  color: #ffffff;
   font-size: 28px;
   font-weight: 800;
+  text-decoration: none;
 }
 
 .left-content {

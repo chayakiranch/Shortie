@@ -175,18 +175,7 @@
 
           <section class="settings-card delete-card">
             <h2>Delete account</h2>
-            <p>Permanently removes your links, QR codes and analytics.</p>
-            <button
-              class="secondary danger-button"
-              id="deleteAccount"
-              type="button"
-            >
-              Delete account
-            </button>
-            <p class="subtle-note">
-              This permanently deletes your account, links, QR code
-              configurations and click analytics. This cannot be undone.
-            </p>
+            <p>Account deletion is currently unavailable in Settings.</p>
           </section>
         </div>
       </main>
@@ -357,38 +346,6 @@
           } finally {
             button.disabled = false;
             button.textContent = "Save link defaults";
-          }
-        });
-
-        $("deleteAccount").addEventListener("click", async () => {
-          const first = confirm(
-            "Delete your Shortie account and all associated links, QR configurations and click analytics? This cannot be undone.",
-          );
-          if (!first) return;
-          const confirmation = prompt(
-            "Type DELETE to permanently delete your account.",
-          );
-          if (confirmation !== "DELETE") {
-            showMessage(
-              "Account deletion cancelled. Type DELETE exactly to confirm.",
-              "error",
-            );
-            return;
-          }
-          const button = $("deleteAccount");
-          button.disabled = true;
-          button.textContent = "Deleting…";
-          try {
-            const data = await api("/api/settings/account", {
-              method: "DELETE",
-            });
-            sessionStorage.removeItem("shortie_token");
-            alert(data.message || "Account deleted.");
-            location.replace("signup.html");
-          } catch (error) {
-            showMessage(error.message, "error");
-            button.disabled = false;
-            button.textContent = "Delete account";
           }
         });
 

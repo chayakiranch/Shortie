@@ -14,21 +14,6 @@
     <link rel="stylesheet" href="index.css" />
   </head>
   <body>
-    <script
-      src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"
-      integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI"
-      crossorigin="anonymous"
-    ></script>
-    <script
-      src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js"
-      integrity="sha384-I7E8VVD/ismYTF4hNIPjVp/Zjvgyol6VFvRkX/vR+Vc4jQkC+hVqc2pM8ODewa9r"
-      crossorigin="anonymous"
-    ></script>
-    <script
-      src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.min.js"
-      integrity="sha384-G/EV+4j2dNv+tEPo3++6LCgdCROaejBqfUeNjuKAiuXbjrxilcCdDz6ZAVfHWe1Y"
-      crossorigin="anonymous"
-    ></script>
 
     <!-- Navbar -->
     <div class="main_Navbar">
@@ -38,15 +23,15 @@
         <div class="Navbar">
           <a href="#features">Features</a>
           <a href="#pricing">Pricing</a>
-          <a href="#api">API</a>
+          <a href="/docs">API</a>
         </div>
 
         <div class="Login_Button">
-          <a href="login.html"><button>Log in</button></a>
+          <a href="login.html">Log in</a>
         </div>
 
         <div class="SignUp_Button">
-          <a href="signin.html"><button>Sign up free</button></a>
+          <a href="signin.html">Sign up free</a>
         </div>
       </nav>
     </div>
@@ -58,17 +43,27 @@
           Short links, QR codes and campaign analytics in one dashboard, built
           for creators, marketers and teams.
         </p>
-        <form class="shorten-form">
+        <form class="shorten-form" id="shorten-form">
           <input
-            type="text"
+            type="url"
+            id="destination-url"
+            autocomplete="url"
+            maxlength="2083"
+            required
             placeholder="https://your-long-destination-url.com/page"
-            aria-label=".form-control-lg example"
+            aria-label="Destination URL"
           />
-          <button>Shorten</button>
+          <button type="submit">Shorten</button>
         </form>
-        <div class="your-long-destination-url">
-          Custom alias, expiry date and QR code are one click away after
-          creating.
+        <p class="guest-hint">Create a temporary link without an account. It expires in 5 minutes.</p>
+        <p id="guest-status" class="guest-status" role="status"></p>
+        <div id="guest-result" class="guest-result" hidden>
+          <div class="guest-link-row">
+            <a id="guest-link"></a>
+            <button id="copy-guest-link" type="button">Copy link</button>
+          </div>
+          <p>This link expires at <time id="guest-expiry"></time>.</p>
+          <p><a id="guest-sign-in" href="login.html">Sign in</a> to create a lasting link and track its clicks.</p>
         </div>
       </section>
 
@@ -120,8 +115,7 @@
             <div class="card-body">
               <h5 class="card-title">Security controls</h5>
               <p class="card-text">
-                Password links, malicious URL checks, rate limits and abuse
-                reporting.
+                Password protection and expiration controls for shared links.
               </p>
             </div>
           </div>
@@ -139,14 +133,13 @@
 
       <!-- Pricing Section -->
       <section class="pricing-section" id="pricing">
-        <h2>Plans</h2>
+        <h2>Planned tiers</h2>
 
         <div class="pricing-grid">
           <div class="card pricing-card">
             <div class="card-body">
               <h5 class="card-title">Free</h5>
               <p class="card-text">Basic links, QR codes, limited analytics</p>
-              <p class="plan-price">[PRICE]</p>
             </div>
           </div>
 
@@ -156,7 +149,6 @@
               <p class="card-text">
                 Custom aliases, advanced analytics, scheduled links
               </p>
-              <p class="plan-price">[PRICE]</p>
             </div>
           </div>
 
@@ -166,7 +158,6 @@
               <p class="card-text">
                 Custom domains, bulk processing, campaign reports
               </p>
-              <p class="plan-price">[PRICE]</p>
             </div>
           </div>
 
@@ -174,7 +165,6 @@
             <div class="card-body">
               <h5 class="card-title">Team</h5>
               <p class="card-text">Shared workspaces, permissions</p>
-              <p class="plan-price">[PRICE]</p>
             </div>
           </div>
 
@@ -184,11 +174,85 @@
               <p class="card-text">
                 Advanced security, audit logs, priority support
               </p>
-              <p class="plan-price">[CONTACT]</p>
             </div>
           </div>
         </div>
       </section>
     </main>
+    <script src="config.js"></script>
+    <script>
+      const form = document.getElementById("shorten-form");
+      const destinationInput = document.getElementById("destination-url");
+      const submitButton = form.querySelector('button[type="submit"]');
+      const result = document.getElementById("guest-result");
+      const status = document.getElementById("guest-status");
+      const shortLink = document.getElementById("guest-link");
+      const expiry = document.getElementById("guest-expiry");
+      const copyButton = document.getElementById("copy-guest-link");
+      let generatedDestination = "";
+
+      destinationInput.addEventListener("input", () => destinationInput.setCustomValidity(""));
+      document.getElementById("guest-sign-in").addEventListener("click", () => {
+        sessionStorage.setItem("shortie_pending_url", generatedDestination);
+      });
+      copyButton.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(shortLink.href);
+          status.textContent = "Link copied.";
+        } catch {
+          status.textContent = "Copy unavailable. You can copy the short link manually.";
+        }
+      });
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const destination = destinationInput.value.trim();
+        if (!/^https?:\/\//i.test(destination)) {
+          destinationInput.setCustomValidity("Enter an HTTP or HTTPS URL.");
+          destinationInput.reportValidity();
+          return;
+        }
+        if (sessionStorage.getItem("shortie_token")) {
+          sessionStorage.setItem("shortie_pending_url", destination);
+          window.location.assign("ShortenURL.html");
+          return;
+        }
+
+        result.hidden = true;
+        status.textContent = "Creating your temporary link…";
+        submitButton.disabled = true;
+        try {
+          const response = await fetch(window.API_URL + "/api/guest-links", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ original_url: destination }),
+          });
+          if (!response.ok) {
+            status.textContent = response.status === 429
+              ? "Too many temporary links. Try again in a moment."
+              : response.status === 422
+                ? "Enter a valid HTTP or HTTPS URL."
+                : "Could not create a temporary link. Try again.";
+            return;
+          }
+
+          const data = await response.json();
+          const expiresAt = new Date(data.expires_at);
+          shortLink.href = data.short_url;
+          shortLink.textContent = data.short_url;
+          expiry.dateTime = expiresAt.toISOString();
+          expiry.textContent = expiresAt.toLocaleTimeString([], {
+            hour: "numeric", minute: "2-digit", second: "2-digit",
+          });
+          generatedDestination = destination;
+          result.hidden = false;
+          status.textContent = "Temporary link ready.";
+        } catch {
+          status.textContent = "Could not create a temporary link. Try again.";
+        } finally {
+          submitButton.disabled = false;
+        }
+      });
+    </script>
   </body>
 </html>

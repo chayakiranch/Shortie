@@ -60,7 +60,6 @@
 
         <p class="footer-note">
           Attempts are rate limited.
-          <a href="#" id="reportLink">Report abuse</a>
         </p>
       </section>
     </main>
@@ -142,13 +141,6 @@
         }
       });
 
-      document
-        .getElementById("reportLink")
-        .addEventListener("click", (event) => {
-          event.preventDefault();
-          errorMessage.textContent =
-            "Please contact the Shortie administrator to report abuse.";
-        });
     </script>
   </body>
 </html>
